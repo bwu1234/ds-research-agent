@@ -50,10 +50,11 @@ outside all agent-visible mounts, indexes, prompts, and tool results. Trusted
 runner observations, model file-use claims, reproduction, and answer
 correctness are distinct; reproduction alone does not prove correctness.
 
-Benchmark data, benchmark answers, generated cards, indexes, run ledgers, and
-traces that quote answers stay out of Git and out of anything published. The
-KramaBench licence is unclear; use it locally only. Use small synthetic
-fixtures for tests.
+The repository is public. Code, docs, and synthetic fixtures are publishable;
+benchmark-derived material is not. Benchmark data, benchmark answers,
+generated cards, indexes, run ledgers, and traces that quote answers stay out
+of Git and out of anything published. The KramaBench licence is unclear; use
+it locally only. Use small synthetic fixtures for tests.
 
 Separate offline deterministic checks (profiler, retrieval-only discovery
 metrics, sandbox isolation, scorers, verifier, recorded-response replays) from
