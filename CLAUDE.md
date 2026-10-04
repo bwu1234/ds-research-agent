@@ -50,8 +50,8 @@ outside all agent-visible mounts, indexes, prompts, and tool results. Trusted
 runner observations, model file-use claims, reproduction, and answer
 correctness are distinct; reproduction alone does not prove correctness.
 
-The repository is public. Code, docs, and synthetic fixtures are publishable;
-benchmark-derived material is not. Benchmark data, benchmark answers,
+Code, docs, and synthetic fixtures may be published; benchmark-derived
+material may not. Benchmark data, benchmark answers,
 generated cards, indexes, run ledgers, and traces that quote answers stay out
 of Git and out of anything published. The KramaBench licence is unclear; use
 it locally only. Use small synthetic fixtures for tests.
@@ -63,7 +63,7 @@ them out of default checks. Hosted judging is a separate opt-in path. Count
 failures and timeouts in every all-task denominator. Keep sub-tasks grouped
 with their parent task for splitting and uncertainty. Tune on development;
 freeze the protocol before final holdout evaluation in D5. Report raw answer
-scores separately from verified success and record limitations honestly.
+scores separately from verified success and record limitations.
 
 ## Documentation map
 

@@ -170,7 +170,7 @@ denominator. Report conditional reproduction rates with submitted/total counts;
 do not substitute them for all-task success. Coverage curves may additionally
 report error among answered tasks, with coverage explicit.
 
-## Splits and discipline
+## Splits and protocol
 
 - Split tasks into development and holdout, stratified by domain, with a
   recorded seed. Keep parent tasks and their sub-tasks together, and assign

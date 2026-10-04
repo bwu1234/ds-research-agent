@@ -5,9 +5,8 @@ acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
 
-This is a portfolio and learning project. Success means a measured agent, a
-reproducible evaluation, and an honest write-up. Product adoption is not the
-goal.
+Success means a measured agent, a reproducible evaluation, and a write-up
+that reports results and limitations. Product adoption is not the goal.
 
 Given a question and a collection of messy data files, the agent:
 
@@ -134,9 +133,6 @@ model's tool-call round trip and reliability rate, prefix-cache measurements,
 and the audit spike's coverage and gaps. Full benchmark catalogue coverage
 belongs to D2 and does not block the first sandboxed analysis workflow.
 
-Learn: MCP from the client side, data profiling, what text a retriever needs to
-see in order to find a table.
-
 ## D1 — Evaluation harness and baselines
 
 - Implement the default local deterministic scoring variant in
@@ -168,8 +164,6 @@ baselines are reported on the development split, along with measured time per
 task and an estimate of how long a full run takes. The `answer_type` decision
 and the chosen thinking level are recorded with their evidence.
 
-Learn: evaluating agents when n is small, and why measured variance matters.
-
 ## D2 — Catalogue expansion and discovery
 
 - Expand the profiler and index to all 1,764 benchmark files. Each has a card;
@@ -193,8 +187,6 @@ Learn: evaluating agents when n is small, and why measured variance matters.
 
 Acceptance: the retrieval-only scores run offline with no LLM. Scores for the
 agentic version are reported with their time cost.
-
-Learn: retrieval over structured data, where text retrieval breaks down.
 
 ## D3 — Sandbox and analysis with given files
 
@@ -234,8 +226,6 @@ cannot pass provenance verification. Synthetic cases demonstrate that wrong
 calculations and hard-coded outputs can reproduce, and exercise the separate
 correctness and observed-access checks without claiming causal verification.
 
-Learn: designing execution loops, recovering from errors, isolating containers.
-
 ## D4 — End to end with provenance
 
 - Combine D2 and D3. The answer object records the files read (path and hash),
@@ -251,8 +241,6 @@ the same tasks and analysis configuration. Report answer score, strict answer
 accuracy, observed-access verification, reproduction rate, and verified success
 separately. The gap measures the effect of this discovery condition, not a pure
 causal retrieval cost. Keep the holdout sealed until D5.
-
-Learn: the headline result, and what "traceable" means in practice.
 
 ## D5 — Focused ablations and final evaluation
 
@@ -326,7 +314,6 @@ hosted model would differ from the evaluated one.
 
 ## Decided
 
-- The repository is named `ds-research-agent`.
 - The main model is `qwen3.8:27b-mlx` through Ollama.
 - KramaBench data and answers are used locally only. No outreach to the
   authors.

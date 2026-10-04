@@ -9,8 +9,7 @@ an MCP search service over dataset cards, and a local `qwen3.8:27b-mlx` model
 through Ollama.
 
 **Status: planning repository.** There is no application, dependency set,
-benchmark download, or score yet. All milestones are pending. This is a
-portfolio and learning project.
+benchmark download, or score yet. All milestones are pending.
 
 ## Example task
 
