@@ -12,6 +12,7 @@ from ds_research_agent.config import ModelSettings
 from ds_research_agent.models.base import (
     ChatMessage,
     ChatResult,
+    ModelResponseError,
     ToolCall,
     ToolSpec,
     Usage,
@@ -77,12 +78,15 @@ class OllamaModelClient:
     ) -> ChatResult:
         s = self._settings
         start = time.monotonic()
-        resp = await self._client.chat(
-            model=s.name,
-            messages=[to_ollama_message(m) for m in messages],
-            tools=[to_ollama_tool(t) for t in tools] or None,
-            think=s.think,
-            options=s.options or None,
-            keep_alive=s.keep_alive,
-        )
+        try:
+            resp = await self._client.chat(
+                model=s.name,
+                messages=[to_ollama_message(m) for m in messages],
+                tools=[to_ollama_tool(t) for t in tools] or None,
+                think=s.think,
+                options=s.options or None,
+                keep_alive=s.keep_alive,
+            )
+        except ollama.ResponseError as e:
+            raise ModelResponseError(e.error, e.status_code) from e
         return from_ollama_response(resp, time.monotonic() - start)

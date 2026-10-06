@@ -177,7 +177,8 @@ Done on 2026-10-05, with evidence:
   `ModelClient` protocol, `OllamaModelClient`), and `retrieval/`
   (`McpRetrieval` adapter). Ruff and `mypy --strict` pass.
 - **Pinned libraries:** `mcp` 2.3.0, `ollama` 0.6.3, `pydantic` 2.13.5,
-  `pydantic-settings` 2.15.0; the lock file records the rest.
+  `pydantic-settings` 2.15.0, `jsonschema` 4.26.0 (added for tool-call
+  validation); the lock file records the rest.
 - **MCP compatibility gate passed** (live test `tests/live/test_mcp_live.py`).
   The `mcp` 2.3.0 `Client` in `mode="auto"` negotiated `2026-07-28` through
   `server/discover` against rag-toolkit over stdio, listed tools, called
@@ -238,9 +239,86 @@ Done on 2026-10-05, with evidence:
   first run in the new venv); next search 0.27–0.33 s. These are 9-card
   fixture numbers and do not predict D2 retrieval quality.
 
-Remaining for D0: the KramaBench fetch script, the tool-call reliability run
-and retry policy, and the read-audit spike. Group
-cards are deferred to D2 (`group_count` is 0).
+- **Tool-call repair policy** (`ds_research_agent/agent/tool_calls.py`,
+  offline tests in `tests/test_tool_calls.py`). A step is accepted when it
+  makes no call or every call names an offered tool and its arguments pass
+  the tool's JSON Schema (`jsonschema` 4.26.0, Draft 2020-12). Otherwise
+  the policy appends feedback and asks again, up to
+  `agent.tool_call_max_repairs` (configured 2). Repairs only append: the
+  rejected assistant message stays, followed by one tool result per call
+  (rejected calls get the error, acceptable siblings are reported as not
+  run). Problem kinds follow how Ollama 0.35.1's `qwen3.5` parser
+  (`model/parsers/qwen35.go`, `qwen3coder.go`) surfaces failures: a tool
+  call whose XML does not parse fails the whole request (`parse_error`; no
+  message exists, so only a user feedback message is appended); an unclosed
+  `<tool_call>` comes back as content (`unparsed_markup`); `unknown_tool`;
+  and `invalid_arguments`, classified as wrong type, missing, unexpected,
+  or other. Ollama coerces each value toward its declared schema type
+  before we see it, so a wrong type means coercion failed. Each rejected
+  response is a `RepairRecord` (attempt, problems, calls, time); writing
+  them to the run ledger waits for the ledger (D1/D3).
+- **Tool-call reliability run** (`scripts/measure_tool_calls.py`; results in
+  `data/measurements/tool_calls_2026-10-06.json`). 50 synthetic single-step
+  cases against the planned tool surface (`search_catalogue`, `read_card`,
+  `run_python`, `submit_answer`; integer, number, enum, pattern, array, and
+  multi-line code arguments) plus 5 requests no tool can serve. Think
+  `medium`, temperature 0, seed 0, one run, no other model loaded. Results:
+
+  | Measure | Count |
+  |---|---|
+  | Malformed calls | 1 of 50 (`parse_error`) |
+  | Wrong argument types, missing or unexpected arguments | 0 |
+  | Calls to unknown tools | 0 (including "call the plot_chart tool") |
+  | Replies with more than one call (rule asks for one) | 2 |
+  | Repairs attempted / succeeded | 1 / 1 |
+  | Right tool, all argument checks pass | 39 of 50 |
+
+  The malformed call was Python code containing the literal string
+  `</parameter>`, which closes Qwen's XML parameter early; after the repair
+  feedback the model built the string from parts. Agent code can contain
+  that string, so the repair path is needed, not just defensive. Of the 11
+  incorrect cases, 9 were `run_python` requests where the model called
+  `read_card` first (twice as two parallel calls) instead of running code:
+  a schema-valid deviation from the instruction, plausibly good agent
+  behaviour, and not a tool-call failure. One search paraphrased `>`/`<`
+  into words. Timing: median 5.1 s per call (2.4–17.7 s), median 120 output
+  tokens and 210 thinking characters, with the 900-token system prompt and
+  tool schemas reused from the prefix cache (median prompt eval 0.67 s).
+  These single-step prompts are short and explicit; they bound tool-call
+  syntax reliability, not multi-step agent behaviour.
+- **KramaBench fetch** (`eval/kramabench/fetch.py`, offline tests in
+  `tests/test_kramabench_fetch.py`). Pinned to commit `b2e0d77` (tree
+  `f89158b`, upstream `main` on 2026-10-06) in config. A shallow fetch by
+  SHA into an evaluator-only checkout (refused unless at the pin with no
+  local or untracked changes), then staged copies: upstream `data/` to the
+  agent-visible store; everything else except `dr-input/` and `.git` to
+  the evaluator store. The stores, checkout, and visible root may not
+  overlap. Each store gets a locally generated `SHA256SUMS` (benchmark
+  derived, so never committed) and `fetch.json` records commit, tree, and
+  counts; `verify` rehashes both stores. The repository has no Git LFS.
+  Fetch and split took 77 s. Measured at the pin: 1,742 data files,
+  666.9 MB (archeology 5, astronomy 1,538, biomedical 8, environment 37,
+  legal 132, wildfire 22); 205 evaluator files; 750 `dr-input/` files
+  excluded. This differs from upstream's README table (1,764 files, 1.7 GB,
+  wildfire 1 GB); the Hugging Face copy's wildfire directory matches the
+  repository, not the README. The domain directory is spelled
+  `archeology`.
+- **`data_sources` resolution** (reported by `fetch` and `verify`, counts
+  only). Entries are relative to `data/<domain>/input` and may be globs.
+  Of 314 entries over 106 workload tasks (including the two `-tiny`
+  files), 268 match exactly, 35 match only under a subdirectory (legal
+  entries omit `csn-data-book-2024-csv/CSVs/`), and 11 do not resolve with
+  case-sensitive matching: 5 differ in case (`Identity Theft Data` versus
+  `data`; macOS's case-insensitive volume hides this, the Linux sandbox
+  will not), 1 typo (`Identitiy`), `omni2.txt` for `omni2.text` (2
+  tasks), 1 glob that expects 4 characters after `T` where file names have
+  6, and 2 files absent from the repository
+  (`WeatherEvents_Jan2016-Dec2022.csv` for wildfire-hard-19, `ZHVI.csv`
+  for wildfire-hard-21). D1 must decide how these tasks count; D2 must fix
+  a resolution rule for discovery labels.
+
+Remaining for D0: the read-audit spike. Group cards are deferred to D2
+(`group_count` is 0).
 
 Acceptance: discovery and a filtered search work through MCP for the fixture
 collection, and returned document IDs resolve through its manifest. Record
@@ -282,7 +360,7 @@ and the chosen thinking level are recorded with their evidence.
 
 ## D2 — Catalogue expansion and discovery
 
-- Expand the profiler and index to all 1,764 benchmark files. Each has a card;
+- Expand the profiler and index to all 1,742 benchmark files. Each has a card;
   unsupported formats receive a minimal card and an explicit parse status.
   Record coverage, build time, and cold/warm search latency.
 - Group cards for file families. Astronomy alone has 1,556 files, mostly CSVs
@@ -314,8 +392,8 @@ agentic version are reported with their time cost.
   the structured answer, ledger, observed data-file read records, and fresh
   rerun before expanding to the development split.
 - A persistent per-run Python kernel inside the sandbox for exploration, so
-  loaded data survives between `run_python` calls (wildfire alone is about
-  1 GB). The final program stays self-contained and is verified in a fresh
+  loaded data survives between `run_python` calls (astronomy alone is about
+  500 MB). The final program stays self-contained and is verified in a fresh
   process. The interim alternative, stateless calls caching parsed data as
   parquet in scratch, is acceptable only until the kernel works.
 - A sandbox package set derived from the benchmark's file-type inventory: for
@@ -428,6 +506,39 @@ and read-audit design, and KramaBench data stays local. A live demo would need
 paid compute or a hosted model, both opt-in with a declared spend cap, and a
 hosted model would differ from the evaluated one.
 
+## Candidate components from the literature survey
+
+A survey on 2026-10-06 (multi-source search, 25 claims adversarially verified,
+13 kept) looked for components a data-science agent usually has that this plan
+lacks. None of these is implemented or committed. Each is a hypothesis to test
+on the development split, with failures and timeouts in the denominator. The
+evidence is almost entirely from 2024-25 papers using hosted models (GPT-4/4o,
+Qwen-72B) on small tabular Kaggle-style tasks, mostly ablations of 4-12 tasks
+without variance. None measures a 27B local model, and no KramaBench-specific
+claim survived verification, so none of it says how much each item would help
+here.
+
+| Candidate | Already in the plan? | Home | Evidence (strength) |
+|---|---|---|---|
+| Statistical-validity layer: deterministic assumption checks (outliers, leverage, distribution), a multiple-comparison counter, and a per-run record of analysis decisions (variables, transforms, model) in the ledger. A robustness pass over alternative specifications is a later, costlier option. | No | D3 checks and ledger fields; the robustness pass in D5 or D7 | Fisher-R1/P-Bench (one Aug 2026 preprint): agents run valid code with flawed inferential choices. BLADE: low coverage of defensible analysis choices (medium) |
+| Lifecycle-aware verifier: classify crashes, check return value versus printed output, score format errors separately from reasoning errors, and hash inputs before and after the run. | Partly: hashes and the fresh rerun exist; format-versus-reasoning scoring and crash classes do not | D1 scoring, D3 and D4 verifier | DSEval. In one setup the pass rate rose from 34% to 55% when presentation errors were ignored; weaker models gained more (medium) |
+| Bounded iteration: a debug-attempt cap, regenerate from scratch after N similar failures, and a termination check. A task DAG is the larger option. | Partly: forced re-plan on repeated error, budgets, and the D5 self-correction ablation; no explicit caps or DAG | D3 loop controls; caps tuned in the D5 ablation | AutoKaggle (cap 5, regenerate after 3, plateau at 10-15 attempts); Data Interpreter task and action graphs; DA-Code failure modes. The graph ablation does not separate planning from debugging (medium) |
+| Explore-first enforcement: the agent must inspect real files, schemas, and dtypes before writing analysis code, with "data not found" and "data misread" as separate failure classes. | Mostly: cards, given-files runs, and the failure taxonomy; no enforced inspection step | D3 loop and taxonomy | DSBench and DA-Code qualitative failure analyses (medium-low) |
+| Curated library of pre-validated cleaning tools. The schemas must stay byte-stable for prefix caching. | No | After D3 measurements, if wrangling errors dominate the taxonomy | AutoKaggle: valid submissions 0.58 to 0.88 with cleaning tools; feature-engineering tools added nothing; 4 tasks (medium-low) |
+| Compaction policy for long runs, for example an append-only prefix with occasional summary checkpoints. | No: context is append-only by design | Decide in D3 from measured context growth | AIDE summarizes a solution tree instead of appending history. This conflicts with prefix reuse, so it is a trade-off, not evidence against append-only (medium) |
+| Retrieval of prior solutions coupled to run feedback. | No | Defer. It needs a case bank built from ledger runs, which raises the contamination risks this project already guards against. | DS-Agent ReviseRank, 12 tasks with GPT-4 (low) |
+
+Topics with no verified evidence: human-in-the-loop checkpoints, report
+generation, uncertainty reporting, and provenance. No vendor engineering
+write-ups survived verification either. Absence of evidence is not absence of
+need; provenance is already covered by D4 and
+[data-and-provenance.md](data-and-provenance.md).
+
+Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
+(2502.13138), AutoKaggle (2410.20424), DSEval (2402.17168), DSBench
+(2409.07703), DA-Code (2410.07331), BLADE (2408.09667), Fisher-R1/P-Bench
+(huggingface.co/papers/2608.07437).
+
 ## Decided
 
 - The main model is `qwen3.8:27b-mlx` through Ollama.
@@ -468,5 +579,12 @@ hosted model would differ from the evaluated one.
   D2 from development retrieval results.
 - Persistent kernel implementation (for example a Jupyter kernel in the
   sandbox) and how its cell history maps to Program records. Decide in D3.
+- Which candidate components from the literature survey to build, in what
+  order, and whether each needs its own ablation. Statistical checks should be
+  deterministic and outside the model unless a local 27B run shows it can do
+  them with an acceptable false-positive rate. Decide after D3 failure-taxonomy
+  counts exist.
+- Long-run context compaction versus strictly append-only context. Decide in D3
+  from measured context growth and cache-reuse figures.
 - The judge model and spend cap, only if an upstream-compatible judged
   KramaBench comparison or D7 is explicitly chosen.

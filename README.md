@@ -9,9 +9,9 @@ an MCP search service over dataset cards, and a local `qwen3.8:27b-mlx` model
 through Ollama.
 
 **Status: D0 in progress.** A Python scaffold with configuration, a model
-client, an MCP retrieval adapter, and a dataset-card profiler with a synthetic
-fixture index exists. There is no agent loop, sandbox,
-benchmark download, or score yet.
+client, an MCP retrieval adapter, a dataset-card profiler with a synthetic
+fixture index, a tool-call repair policy, and a pinned KramaBench fetch script
+exist. There is no agent loop, sandbox, or score yet.
 
 ## Example task
 
@@ -25,7 +25,7 @@ reproduced it.
 ## Evaluation
 
 The main benchmark is [KramaBench](https://github.com/mitdbg/KramaBench): 104
-tasks and 633 sub-tasks over 1,764 files in 6 domains. It is scored under
+tasks and 633 sub-tasks over 1,742 files in 6 domains (at the pinned commit). It is scored under
 three conditions: no tools, given files, and end to end. See the
 [evaluation plan](docs/evaluation-plan.md).
 

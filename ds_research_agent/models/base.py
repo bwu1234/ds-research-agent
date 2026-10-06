@@ -58,6 +58,20 @@ class ChatResult(_Frozen):
     wall_s: float = Field(ge=0)
 
 
+class ModelResponseError(Exception):
+    """The provider failed a request instead of returning a message.
+
+    Ollama 0.35.1 does this when it cannot parse the model's tool-call
+    markup (the qwen3.5 parser returns an error and the request is
+    cancelled), so there is no assistant message to repair.
+    """
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status = status
+
+
 class ModelClient(Protocol):
     async def chat(
         self,

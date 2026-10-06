@@ -48,7 +48,8 @@ flowchart TD
 
 ## Agent tools
 
-Proposed tools (none exist yet). At rag-toolkit `b7434cf` the MCP server
+Proposed tools (none exist yet; the tool-call validation and repair policy in
+`ds_research_agent/agent/tool_calls.py` does). At rag-toolkit `b7434cf` the MCP server
 offers `rag_search`, `rag_list_corpora`, `rag_list_documents`,
 `rag_read_document`, and `rag_find`. Only `rag_search` backs an agent tool;
 `rag_list_documents` enumerates the whole catalogue and `rag_read_document`
@@ -121,7 +122,8 @@ this on a GDAL-backed read and a child process.
    See the measured latency in [implementation-plan.md](implementation-plan.md#measured-model-latency).
 4. Record every model turn, tool call, program, output, and error in the run
    ledger. Enforce step, token, and wall-clock budgets. Repair malformed tool
-   calls with a bounded retry; record each retry. When the same error repeats,
+   calls with a bounded, append-only retry (implemented in D0; see
+   [D0 progress](implementation-plan.md#d0-progress)); record each retry. When the same error repeats,
    require the model to re-plan before running more code.
 5. Before submitting, the agent checks its result for plausibility: magnitude,
    units, row counts after filtering, and nulls. This is the agent's own check,

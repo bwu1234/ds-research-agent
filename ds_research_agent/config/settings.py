@@ -11,7 +11,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, PositiveInt
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -78,6 +85,25 @@ class RagServiceSettings(_Strict):
     index_timeout_s: PositiveFloat
 
 
+class AgentSettings(_Strict):
+    # Repair turns allowed for one step after a rejected tool call (parse
+    # error, unknown tool, or schema-invalid arguments). 0 disables repair.
+    tool_call_max_repairs: NonNegativeInt
+
+
+class KramaBenchSettings(_Strict):
+    repo_url: str
+    # Full 40-hex commit; the fetch refuses anything else.
+    commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    # Git working copy at ``commit``. Evaluator-only: it holds the answers.
+    checkout: Path
+    # Agent-visible raw-file store (upstream ``data/`` only). Must not be
+    # inside ``evaluator_root`` or ``checkout``.
+    visible_root: Path
+    # Evaluator-only store (``workload/``, ``solutions/``, scorer code).
+    evaluator_root: Path
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="DSRA_",
@@ -90,6 +116,8 @@ class Settings(BaseSettings):
     mcp: McpSettings
     catalogue: CatalogueSettings
     rag_service: RagServiceSettings
+    agent: AgentSettings
+    kramabench: KramaBenchSettings
 
     @classmethod
     def settings_customise_sources(

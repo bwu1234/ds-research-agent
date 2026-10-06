@@ -1,5 +1,7 @@
 from ds_research_agent.config.settings import (
+    AgentSettings,
     CatalogueSettings,
+    KramaBenchSettings,
     McpSettings,
     ModelSettings,
     RagServiceSettings,
@@ -8,7 +10,9 @@ from ds_research_agent.config.settings import (
 )
 
 __all__ = [
+    "AgentSettings",
     "CatalogueSettings",
+    "KramaBenchSettings",
     "McpSettings",
     "ModelSettings",
     "RagServiceSettings",
