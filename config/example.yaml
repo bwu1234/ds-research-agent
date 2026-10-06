@@ -1,0 +1,39 @@
+# Copy to config/local.yaml (ignored by Git) and replace the absolute paths.
+model:
+  host: http://127.0.0.1:11434
+  name: qwen3.8:27b-mlx
+  think: medium            # false | low | medium | xhigh; chosen in D1
+  options:
+    temperature: 0
+    seed: 0
+  keep_alive: 30m
+  request_timeout_s: 900
+
+mcp:
+  command: /ABS/PATH/rag-toolkit-dsra/.venv/bin/python
+  args: ["-m", "rag.mcp", "--config", "/ABS/PATH/ds-research-agent/data/fixture/rag.yaml"]
+  cwd: /ABS/PATH/rag-toolkit-dsra
+  protocol_version: "2026-07-28"
+  required_tools: [rag_search, rag_list_corpora]
+  call_timeout_s: 120
+  max_result_chars: 60000
+
+catalogue:
+  data_root: /ABS/PATH/ds-research-agent/tests/fixtures/lake
+  cards_dir: /ABS/PATH/ds-research-agent/data/fixture/cards
+  manifest_path: /ABS/PATH/ds-research-agent/data/fixture/manifest.json
+  corpus: fixture-cards
+  sample_rows: 10000
+  card_sample_rows: 3
+  max_example_values: 3
+  max_cell_chars: 80
+  max_json_bytes: 50000000
+
+rag_service:
+  checkout: /ABS/PATH/rag-toolkit-dsra
+  revision: b7434cf8b98f5843f3810b2c763f1732b72d770d
+  python: /ABS/PATH/rag-toolkit-dsra/.venv/bin/python
+  base_config: /ABS/PATH/rag-toolkit-dsra/rag/config/config.yaml
+  generated_config: /ABS/PATH/ds-research-agent/data/fixture/rag.yaml
+  index_dir: /ABS/PATH/ds-research-agent/data/fixture/index
+  index_timeout_s: 1800

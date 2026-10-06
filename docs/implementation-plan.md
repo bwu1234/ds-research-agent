@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: all milestones pending. This is a sequence of small deliverables with
+Status: D0 in progress; all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -50,26 +50,67 @@ Single rough runs on 2026-10-04 (Ollama 0.35.1, thinking off, generate API):
 |---|---|
 | Default loaded context (`ollama ps`) | 262,144 tokens; no implicit truncation at this size |
 | Prefill, 24k-token prompt, no cached prefix | about 98 tokens/s (87–250 s before the first output token) |
-| Prefill, same 24k prefix with a different suffix | 0.6 s; Ollama reused the cached prefix |
+| Prefill, same 24k prefix with a different suffix | 0.6 s; Ollama reused the cached prefix (not reproduced on 2026-10-05 for a change inside the last message; see below) |
 | Generation | about 19 tokens/s |
 
 At these rates, 2,000 thinking tokens take about 100 s, and a cache miss on a
-long transcript costs minutes. The loop design follows from this:
+long transcript costs minutes.
+
+### Prefix-cache reuse (measured 2026-10-05)
+
+Script: `scripts/measure_prefix_cache.py` (chat API through
+`OllamaModelClient`, think `medium`, temperature 0, seed 0, a 4.3k-token
+system prompt with three tool schemas, canned tool outputs). Ground truth
+comes from the per-request `prefix_cache.go` lines in
+`~/.ollama/logs/server.log` (`total`, `matched`, `cached`, `left`); results
+JSON stays under `data/measurements/`. Four scenarios, 23 model turns, one run
+each.
+
+How the cache works. `qwen3.8:27b-mlx` is a hybrid model (`linear_attn`
+recurrent layers plus attention layers). Ollama 0.35.1's MLX runner
+(`mlxrunner/prefix_cache.go`, `pipeline.go` at tag `v0.35.1`) keeps a prefix
+trie shared across conversations. Recurrent state can resume only where a
+snapshot exists: the live end of the last sequence (prompt plus generated
+tokens), prompt end minus 4 tokens, every 8,192 tokens of prefill, and branch
+points where an earlier request diverged. Paged-out snapshots are kept up to
+8 GiB. A divergence anywhere else resumes from the nearest earlier snapshot,
+often 0.
+
+| Finding | Evidence |
+|---|---|
+| `prompt_eval_count` is the whole prompt, not the evaluated part | Identical repeat: 4,298 reported, 0.12–0.14 s (cold: 37–41 s) |
+| Changing the end of the last user message re-prefills everything | `matched=4290 cached=388`, 36.9–40.2 s |
+| An append-only tool loop resumes after the previous turn's generated tokens | Baseline turns 1–6: `cached` = previous total + previous output tokens; only the new tool result is evaluated (600–3,109 tokens) |
+| Thinking passed back verbatim is reused; a second user message does not strip it | Follow-up turn: 24 of 12,087 tokens evaluated, 0.4 s |
+| Dropping thinking from history costs one turn's output, not the prefix | Resumes from the prompt-end snapshot (`cached=7436` of 8,079) and re-evaluates about 140 tokens |
+| A `rag_search` between turns does not evict the cache | Every turn resumed in full; the embedder runs as a separate `llama-server` runner. `rag_search` loaded only `qwen3-embedding:0.6b` |
+| An unrelated request to the same model between turns does not evict the cache | 33-token request, then `cached=7661` and `cached=8477` as in the other scenarios |
+| Loading another model under memory pressure does | Another local project's `qwen3.5:9b-mlx` request (4.3 GiB free) stopped the 27b runner twice; the next turn was `cached=0`, 79 s instead of about 6 s |
+| Prefill cost tracks new tokens | About 100–115 tokens/s cold and incremental; a 13.9k-token turn cost 16.7 s warm versus 130 s cold |
+
+The loop design follows from this:
 
 - Keep the conversation append-only within a run. Keep the system prompt and
   tool schemas byte-stable, with no timestamps or per-turn state, and never
-  rewrite or summarise earlier turns mid-run. Measure how much of the prefix
-  survives past assistant turns whose thinking the chat template strips.
+  rewrite or summarise earlier turns mid-run: any edit before the end of the
+  last prompt resumes from the nearest snapshot, usually the start.
+- Pass the model's thinking and tool calls back exactly as returned.
+- Put task-specific text after a system prompt and tool schemas that are
+  identical across tasks; the branch-point snapshot then lets later tasks
+  resume after the shared prefix (seen at 388 tokens, where these runs'
+  prompts diverged).
 - Bound tool outputs (stdout, stderr, table previews) in configuration so a
-  single step cannot flood the context.
-- Issue one model request at a time. rag-toolkit's base configuration embeds
-  queries through the same Ollama daemon (`qwen3-embedding:0.6b`); measure
-  whether a search between turns evicts the main model's cached prefix, and
-  confirm the served retrieval configuration calls no generative model.
+  single step cannot flood the context; each 1k tokens of tool output costs
+  about 10 s of prefill on the next turn.
+- Issue one model request at a time, and keep other Ollama models unloaded
+  during runs: runner eviction is the one measured way to lose the cache.
+  Verifier or side requests to the same model are safe.
 - Choose the thinking level in D1 from measured accuracy and time on the fixed
   development sample, not as a late ablation. It determines whether a full
   development run takes hours or days.
-- Record evaluated versus cached prompt tokens and thinking tokens per step.
+- Record prompt tokens, prompt-eval duration, and thinking tokens per step.
+  Ollama does not report evaluated versus cached prompt tokens; how the ledger
+  records that split is open (see D0 progress).
 - **Paid models** are not part of the plan. Any comparison with a hosted model
   is opt-in and needs a declared spend cap before it runs. This also applies
   to benchmark judges; the default scoring profile makes no hosted calls.
@@ -125,6 +166,81 @@ prefix-cache measurements.
   (for example, a GDAL-backed geopackage read) and a child process. This is the
   riskiest unbuilt part and the one verified success depends on; D3 still
   makes the final sandbox decision.
+
+### D0 progress
+
+Done on 2026-10-05, with evidence:
+
+- **Scaffold.** `pyproject.toml` (Python >=3.14, uv), package
+  `ds_research_agent` with `config/` (pydantic-settings, YAML plus `DSRA_`
+  environment overrides, unknown keys rejected), `models/` (provider-neutral
+  `ModelClient` protocol, `OllamaModelClient`), and `retrieval/`
+  (`McpRetrieval` adapter). Ruff and `mypy --strict` pass.
+- **Pinned libraries:** `mcp` 2.3.0, `ollama` 0.6.3, `pydantic` 2.13.5,
+  `pydantic-settings` 2.15.0; the lock file records the rest.
+- **MCP compatibility gate passed** (live test `tests/live/test_mcp_live.py`).
+  The `mcp` 2.3.0 `Client` in `mode="auto"` negotiated `2026-07-28` through
+  `server/discover` against rag-toolkit over stdio, listed tools, called
+  `rag_list_corpora`, and received a typed tool error for an unknown corpus.
+  Startup to tool list took 0.84 s. The first run used the main rag-toolkit
+  checkout, which had uncommitted edits; it has since been rerun against the
+  pinned clone below (0.95 s).
+- **rag-toolkit pinned at `b7434cf`** as a separate clone with its own venv
+  (`~/rag-toolkit-dsra`, `pip install -e '.[mcp]'`), so in-progress work in
+  the main checkout cannot change the served code. The index job refuses to run
+  unless the clone is at the pinned commit with no tracked modifications.
+  rag-toolkit has no lock file, so this venv resolved current releases (its
+  server runs `mcp` 2.3.0, chromadb 1.5.9, sentence-transformers 6.1.0). Each
+  index generation records a hash of the venv's package list and writes the
+  list next to the index.
+- **Model tool-call round trip passed** (live test
+  `tests/live/test_model_live.py`; `qwen3.8:27b-mlx`, think `medium`,
+  temperature 0, seed 0). Turn 1 called `add` with correct integer arguments:
+  16.6 s wall, 305 prompt-eval and 65 output tokens. Turn 2 answered from the
+  tool result: 51.8 s wall, 391 prompt-eval and 40 output tokens. Single run;
+  another model (`qwen3.5:9b-mlx`, 11 GB) was loaded concurrently. Turn 2's
+  prompt-eval count covering the whole prompt does not show a cache miss:
+  Ollama reports the whole prompt either way (see the prefix-cache
+  measurement below).
+- **Prefix-cache reuse measured** (`scripts/measure_prefix_cache.py`; results
+  in [Prefix-cache reuse](#prefix-cache-reuse-measured-2026-10-05)). An
+  append-only tool loop with thinking passed back resumes exactly after the
+  previous turn's output; searches and unrelated requests between turns do
+  not evict it; loading another model under memory pressure does. Open: the
+  ledger's evaluated-versus-cached fields have no direct source, because
+  Ollama reports only the total. The options are an estimate from
+  prompt-eval duration and the measured rate, or joining the server log's
+  `prefix_cache.go` lines, which are exact but host-local and
+  version-specific.
+
+- **Profiler and fixture collection.** `ds_research_agent/catalogue/`
+  profiles `tests/fixtures/lake` (9 synthetic files in 2 domains: CSV with
+  `,` and `;` delimiters, cp1252 encoding, nulls, a shared-schema pair, JSON
+  arrays and objects, a prompt-injection string, an unsupported `.sp3`, and a
+  truncated JSON) into 9 cards: 7 `ok`, 1 `unsupported`, 1 `error`. Builds
+  are byte-identical when repeated and are swapped in only after every file
+  is profiled. Card schema: [data-and-provenance.md](data-and-provenance.md#d0-card-schema).
+- **Fixture index.** `python -m ds_research_agent.catalogue index` writes a
+  flattened rag-toolkit config that serves only the card corpus, runs
+  rag-toolkit's `index --reset` and `index-report`, checks the document count
+  against the manifest and that no chunk is missing or stale, and writes
+  `generation.json`. With the embedding model already loaded, indexing 9 cards
+  into 10 chunks took 1.35 s.
+- **D0 search acceptance passed** (live test
+  `tests/live/test_fixture_search_live.py`). `rag_list_corpora` lists only
+  `fixture-cards`. `equals` domain filters returned only that domain's cards,
+  an `any_of` format filter combined with a domain filter returned only CSV
+  cards, an unknown filter field returned a typed tool error, and every
+  returned document ID resolved through the manifest to a catalogue entry. The
+  top legal hit for an identity-theft query was a Utah MSA card. Latency over
+  three runs: MCP startup 0.80–0.96 s; first search after server start
+  8.6–15.5 s, which loads the retrievers and cross-encoder (73.5 s on the
+  first run in the new venv); next search 0.27–0.33 s. These are 9-card
+  fixture numbers and do not predict D2 retrieval quality.
+
+Remaining for D0: the KramaBench fetch script, the tool-call reliability run
+and retry policy, and the read-audit spike. Group
+cards are deferred to D2 (`group_count` is 0).
 
 Acceptance: discovery and a filtered search work through MCP for the fixture
 collection, and returned document IDs resolve through its manifest. Record

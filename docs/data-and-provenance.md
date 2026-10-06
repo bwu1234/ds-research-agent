@@ -1,6 +1,6 @@
 # Data, catalogue, and provenance
 
-Status: proposed schemas, to implement starting in D0.
+Status: the D0 file-card schema and manifest are implemented; other records are proposed.
 
 ## Data handling
 
@@ -68,6 +68,38 @@ error list. Cards note which reader in the sandbox package set loads the format.
 
 Profile large files from bounded samples so profiling time and memory stay
 fixed; record the sampling rule in the card and profiler version.
+
+### D0 card schema
+
+Implemented in `ds_research_agent/catalogue/profiler.py`, `PROFILER_VERSION = 1`:
+
+- **Front matter**, all values YAML strings so rag-toolkit's `equals` and
+  `any_of` filters match them: `title` (the file path), `domain`,
+  `catalogue_id`, `file_path`, `file_hash` (`sha256:`), `format` (lower-case
+  extension), `size`, `card_kind` (`file`), `parse_status` (`ok`,
+  `unsupported`, `error`), `profiler_version`.
+- **Identity.** `domain` is the first path component under the data root.
+  `catalogue_id` is `<domain>/<first 10 hex digits of sha256(file_path)>`;
+  the build fails on a collision. The card is written at
+  `<cards_dir>/<file_path>.md`, and rag-toolkit's Markdown loader uses that
+  relative path as the document ID, so `document_id = file_path + ".md"`.
+  The manifest records this, and the adapter resolves results by exact
+  document ID (confirmed against the real loader in the D0 search test).
+- **Body.** Path, format, size, sandbox reader, and encoding (UTF-8, then
+  cp1252, then latin-1) and delimiter (`,` `;` tab `|`, chosen from the
+  header line) for CSV. One table per CSV, JSON array of objects, or JSON
+  object key holding an array of objects: row and column counts, then per
+  column the inferred type (integer, float, boolean, ISO date, string), null
+  count, numeric or date range, and up to `max_example_values` distinct
+  examples (strings quoted), then the first `card_sample_rows` rows. Cells
+  are whitespace-collapsed, clipped to `max_cell_chars`, and `|`-escaped.
+- **Sampling rule.** Column statistics use the first `sample_rows` rows; rows
+  are counted to the end of the file, and the card states which applied.
+  D0 decodes each file whole to choose an encoding; D2 must stream large
+  files.
+- **Skipped paths** (hidden files, symlinks, files outside a domain
+  directory, paths containing newlines) get no card and are listed in the
+  manifest with a reason.
 
 ### Group cards
 

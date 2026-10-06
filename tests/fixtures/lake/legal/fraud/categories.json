@@ -1,0 +1,6 @@
+[
+  {"category": "Imposter scams", "reports": 853935, "median_loss_usd": 800.0, "online": true},
+  {"category": "Online shopping", "reports": 369071, "median_loss_usd": 102.5, "online": true},
+  {"category": "Prizes and lotteries", "reports": 139212, "median_loss_usd": null, "online": false},
+  {"category": "Investment related", "reports": 107018, "median_loss_usd": 7768.0, "online": true}
+]
