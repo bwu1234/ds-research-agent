@@ -14,6 +14,21 @@ Pin this dependency during D0; review contract changes before upgrading. The
 local checkout was at `3f56da8` on 2026-10-03, so recheck this contract against
 the revision you pin.
 
+## Client compatibility, 2026-10-05
+
+The `mcp` 2.3.0 Python client connects to rag-toolkit at `b7434cf` over
+stdio. `Client(mode="auto")` negotiated `2026-07-28` through
+`server/discover`, and `tools/list` and `tools/call` worked. This is
+implemented in `ds_research_agent/retrieval/mcp_adapter.py` and checked by
+`tests/live/test_mcp_live.py`. See the D0 progress notes in
+[implementation-plan.md](implementation-plan.md) for the dirty-checkout caveat.
+
+Since `fa2a92a`, the server has added `rag_list_documents`,
+`rag_read_document`, and `rag_find`, and result passages now carry
+`char_start`/`char_end`. The adapter keeps additive fields. The agent's tool
+surface exposes none of the new tools (see
+[architecture.md](architecture.md#agent-tools)).
+
 ## Existing tools
 
 `rag_list_corpora` lists configured corpora and index information.
@@ -77,6 +92,21 @@ Use a small synthetic card collection for D0's filtered-search and identity
 mapping checks. Expand this setup to the complete benchmark catalogue in D2;
 full catalogue coverage does not block D3's first given-files workflow.
 
+## Implemented configuration, 2026-10-05
+
+`ds_research_agent/catalogue/index_job.py` implements the recipe below. It
+reads the pinned checkout's `rag/config/config.yaml`, applies the overlay, and
+**replaces** `corpora` outright, writing one flattened file with no `base:`
+key. This is needed because an overlay's registry merges with the base
+registry. It also sets `retrieval.expansion.provider: none`. The carried
+metadata is `title, domain, catalogue_id, file_path, format, card_kind`;
+`group_id` is added with group cards in D2. Everything else keeps the base
+defaults: hybrid retrieval, `qwen3-embedding:0.6b` through Ollama, and
+`BAAI/bge-reranker-v2-m3`.
+
+rag-toolkit's CLI logs to stdout even with `index-report --json`, so the job
+parses the trailing JSON object.
+
 ## Local configuration recipe
 
 Use the rag-toolkit virtual environment's interpreter and set its working
@@ -123,8 +153,11 @@ the header template stays valid.
 
 The base configuration embeds queries through the same Ollama daemon as the
 agent's model (`embedding.provider: ollama`, `qwen3-embedding:0.6b`). D0
-measures whether a search between model turns evicts the agent's cached prompt
-prefix. The served overlay must also enable no retrieval step that calls a
+measured that a search between model turns does not evict the agent's cached
+prompt prefix: the embedder runs in its own runner, and `rag_search` loaded no
+generative model (see
+[implementation-plan.md](implementation-plan.md#prefix-cache-reuse-measured-2026-10-05)).
+The served overlay must also enable no retrieval step that calls a
 generative model (for example HyDE query expansion), which would load a second
 LLM next to the agent's.
 

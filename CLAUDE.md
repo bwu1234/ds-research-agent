@@ -2,8 +2,11 @@
 
 ## Current state
 
-This repository contains plans only. Do not describe planned modules, tools,
-commands, evaluations, or integrations as implemented. Start with
+D0 is in progress: the Python scaffold, validated configuration, Ollama model
+client, MCP retrieval adapter, dataset-card profiler, and fixture index job
+exist. Everything else is planned. Do not
+describe planned modules, tools, commands, evaluations, or integrations as
+implemented. Start with
 `docs/implementation-plan.md` and update milestone status with evidence as work
 lands. Do not infer this agent's quality from rag-toolkit's own measurements
 or from published KramaBench scores of other systems.
@@ -27,10 +30,30 @@ or from published KramaBench scores of other systems.
 
 ## Implementation conventions
 
-Proposed stack: Python with typed public APIs, validated boundary schemas,
-SQLite for run records, stdio MCP, and Ollama for the model. Pin versions when
-D0 lands. There are no executable setup or test commands yet; add verified
-commands here when the application is scaffolded.
+Stack: Python 3.14 managed by uv, typed public APIs (mypy strict), pydantic
+boundary schemas, SQLite for run records (planned), stdio MCP, and Ollama for
+the model. Versions are pinned in `pyproject.toml` and `uv.lock`.
+
+Verified commands:
+
+```bash
+uv sync                                  # create .venv from uv.lock
+uv run pytest                            # offline checks only (default)
+uv run ruff check . && uv run ruff format --check . && uv run mypy
+cp config/example.yaml config/local.yaml # then set absolute paths
+# Fixture catalogue: profile tests/fixtures/lake, then index it with the
+# pinned rag-toolkit clone (rag_service.checkout; must be clean at the pin)
+uv run python -m ds_research_agent.catalogue --config config/local.yaml build
+uv run python -m ds_research_agent.catalogue --config config/local.yaml index
+uv run pytest -m live -s                 # local model + live rag-toolkit server
+```
+
+The pinned rag-toolkit lives in a separate clone with its own venv, not the
+main rag-toolkit working tree, so in-progress upstream work cannot change it.
+
+Tests that call the model or a live server carry the `live` marker and are
+excluded by default. Settings load from YAML with `DSRA_` environment
+overrides (`DSRA_MODEL__THINK=low`); unknown keys are errors.
 
 Model latency is the binding constraint (measured figures are in
 `docs/implementation-plan.md`). Keep each run's model context append-only,

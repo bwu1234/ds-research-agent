@@ -48,8 +48,11 @@ flowchart TD
 
 ## Agent tools
 
-Proposed tools (none exist yet; only `rag_search` and `rag_list_corpora` exist,
-in rag-toolkit):
+Proposed tools (none exist yet). At rag-toolkit `b7434cf` the MCP server
+offers `rag_search`, `rag_list_corpora`, `rag_list_documents`,
+`rag_read_document`, and `rag_find`. Only `rag_search` backs an agent tool;
+`rag_list_documents` enumerates the whole catalogue and `rag_read_document`
+bypasses the discovered-ID policy, so neither is exposed to the model.
 
 | Tool | Does | Guard |
 |---|---|---|

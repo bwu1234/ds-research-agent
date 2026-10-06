@@ -1,0 +1,6 @@
+{"agency": "Synthetic Harbor Authority", "updated": "2024-07-01",
+ "stations": [
+  {"station_id": "BHB-01", "name": "North Pier", "lat": 42.36, "lon": -71.05},
+  {"station_id": "BHB-02", "name": "Mill Creek Outfall", "lat": 42.33, "lon": -71.02},
+  {"station_id": "BHB-03", "name": "Outer Island", "lat": 42.31, "lon": -70.96}
+ ]}
