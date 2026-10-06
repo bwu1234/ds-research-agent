@@ -37,3 +37,13 @@ rag_service:
   generated_config: /ABS/PATH/ds-research-agent/data/fixture/rag.yaml
   index_dir: /ABS/PATH/ds-research-agent/data/fixture/index
   index_timeout_s: 1800
+
+agent:
+  tool_call_max_repairs: 2
+
+kramabench:
+  repo_url: https://github.com/mitdbg/KramaBench.git
+  commit: b2e0d77540263f8b6119f977fe79a8c4386b5a02
+  checkout: /ABS/PATH/ds-research-agent/data/kramabench/repo
+  visible_root: /ABS/PATH/ds-research-agent/data/kramabench/visible
+  evaluator_root: /ABS/PATH/ds-research-agent/data/kramabench/evaluator

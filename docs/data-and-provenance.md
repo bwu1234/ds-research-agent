@@ -1,6 +1,6 @@
 # Data, catalogue, and provenance
 
-Status: the D0 file-card schema and manifest are implemented; other records are proposed.
+Status: the D0 file-card schema, manifest, and KramaBench fetch are implemented; other records are proposed.
 
 ## Data handling
 
@@ -19,7 +19,9 @@ separate evaluator-only location, excluded from profiling, indexing, prompts,
 and sandbox mounts. Fetching the benchmark does not expose its repository to
 the agent.
 
-The fetch script splits the KramaBench repository by visibility:
+The fetch script (`eval/kramabench/fetch.py`, implemented in D0) splits the
+KramaBench repository by visibility into stores whose paths are set in the
+`kramabench` configuration section and may not overlap:
 
 | Upstream path | Destination |
 |---|---|
@@ -27,7 +29,13 @@ The fetch script splits the KramaBench repository by visibility:
 | `workload/` | Evaluator-only (queries, answers, `data_sources`, sub-tasks) |
 | `solutions/` | Evaluator-only (reference code per task) |
 | `dr-input/` | Not catalogued; per-task copies of `data/` files that would duplicate the pooled collection |
-| `benchmark/`, scripts, notebooks | Evaluator-only, for pinning the scorer |
+| `benchmark/` and every other top-level entry | Evaluator-only, for pinning the scorer |
+| `.git`, the clone itself | Evaluator-only checkout; never mounted |
+
+Checksums (`SHA256SUMS` per store) are generated at fetch time and kept with
+the data, not committed: a list of benchmark file names and hashes is
+benchmark-derived. The pinned commit and tree hash are the committed
+identity; `verify` rehashes the stores.
 
 Task queries reach the agent only through the harness, never through a mount.
 

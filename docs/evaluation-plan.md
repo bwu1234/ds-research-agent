@@ -1,7 +1,7 @@
 # Evaluation plan
 
-Status: proposed. No dataset has been downloaded, no harness exists, and no
-scores exist yet. Define acceptance criteria before scoring a holdout.
+Status: proposed. KramaBench is fetched locally at a pinned commit (D0); no
+harness exists and no scores exist yet. Define acceptance criteria before scoring a holdout.
 
 ## Benchmarks (checked 2026-10-03)
 
@@ -20,6 +20,14 @@ Source: [mitdbg/KramaBench](https://github.com/mitdbg/KramaBench), last pushed
 | Wildfire | 21 | 120 | 23 | 1 GB | csv, gpkg, xlsx, json |
 | **Total** | **104** | **633** | **1,764** | **1.7 GB** | |
 
+The file counts and sizes above are upstream's README figures. The pinned
+commit `b2e0d77` (fetched 2026-10-06) has 1,742 files and 666.9 MB under
+`data/`: archeology (spelled so on disk) 5, astronomy 1,538, biomedical 8,
+environment 37, legal 132, wildfire 22 (32 MB, not 1 GB). Two tasks name
+files the repository lacks (wildfire-hard-19, wildfire-hard-21), and 9
+other `data_sources` entries do not resolve case-sensitively; see
+[D0 progress](implementation-plan.md#d0-progress). Use the measured counts.
+
 - **Answers are public and in plain text** in `workload/<domain>.json`. Each
   task has `query`, `answer`, and `answer_type`. Most answer types are
   `numeric_exact`; the rest are string or list types, exact or approximate.
@@ -33,7 +41,7 @@ Source: [mitdbg/KramaBench](https://github.com/mitdbg/KramaBench), last pushed
   in one end-to-end program; upstream pipeline evaluation uses a model.
 - **Discovery is trivial in some domains.** Archaeology has 5 files and
   biomedical has 7, while astronomy has 1,556 and legal 136. Report discovery
-  per domain, and add a pooled condition where all 1,764 files form one
+  per domain, and add a pooled condition where all 1,742 files form one
   collection. The pooled condition is our variant, so report it separately.
 - **The licence is unclear.** The GitHub repo has no licence file, and the
   [Hugging Face copy](https://huggingface.co/datasets/eugenie-y/KramaBench)

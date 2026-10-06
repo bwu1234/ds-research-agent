@@ -3,8 +3,8 @@
 ## Current state
 
 D0 is in progress: the Python scaffold, validated configuration, Ollama model
-client, MCP retrieval adapter, dataset-card profiler, and fixture index job
-exist. Everything else is planned. Do not
+client, MCP retrieval adapter, dataset-card profiler, fixture index job,
+tool-call repair policy, and KramaBench fetch script exist. Everything else is planned. Do not
 describe planned modules, tools, commands, evaluations, or integrations as
 implemented. Start with
 `docs/implementation-plan.md` and update milestone status with evidence as work
@@ -46,6 +46,9 @@ cp config/example.yaml config/local.yaml # then set absolute paths
 uv run python -m ds_research_agent.catalogue --config config/local.yaml build
 uv run python -m ds_research_agent.catalogue --config config/local.yaml index
 uv run pytest -m live -s                 # local model + live rag-toolkit server
+# KramaBench at the pinned commit, split into agent-visible and evaluator stores
+uv run python -m eval.kramabench.fetch --config config/local.yaml fetch   # or verify
+uv run python scripts/measure_tool_calls.py --config config/local.yaml --out data/measurements/tool_calls.json
 ```
 
 The pinned rag-toolkit lives in a separate clone with its own venv, not the

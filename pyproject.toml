@@ -5,6 +5,7 @@ description = "Data research agent: discover files, analyse in a sandbox, answer
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "jsonschema==4.26.0",
     "mcp==2.3.0",
     "ollama==0.6.3",
     "pydantic==2.13.5",
@@ -19,6 +20,7 @@ dev = [
     "mypy==2.4.0",
     "types-pyyaml",
     "pytest-asyncio>=1.4.0",
+    "types-jsonschema>=4.26.0.20261006",
 ]
 
 [build-system]
@@ -44,7 +46,7 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.mypy]
 strict = true
-packages = ["ds_research_agent"]
+packages = ["ds_research_agent", "eval"]
 
 [tool.pyright]
 venvPath = "."
