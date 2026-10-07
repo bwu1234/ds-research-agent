@@ -106,8 +106,9 @@ and a lighter option from measured isolation, read-auditing coverage, and
 startup time. Container defaults alone do not establish these properties. A
 plain subprocess on the host does not meet the requirements. On macOS, Docker
 runs containers inside a Linux VM, so the read auditor (for example `strace -f`
-or fanotify) runs inside that VM or container under runner control. D0 spikes
-this on a GDAL-backed read and a child process.
+or fanotify) runs inside that VM or container under runner control. The D0
+spike's coverage and gaps are recorded in
+[implementation-plan.md](implementation-plan.md#d0-progress).
 
 ## Agent execution
 
