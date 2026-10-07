@@ -1,7 +1,9 @@
 # Evaluation plan
 
-Status: proposed. KramaBench is fetched locally at a pinned commit (D0); no
-harness exists and no scores exist yet. Define acceptance criteria before scoring a holdout.
+Status: the D1 harness is implemented (local deterministic scorer, frozen
+split, run ledger, no-tools and inlined-files baselines, replay); results
+are in [D1 progress](implementation-plan.md#d1-progress). The holdout is
+sealed. Define acceptance criteria before scoring a holdout.
 
 ## Benchmarks (checked 2026-10-03)
 
@@ -20,6 +22,9 @@ Source: [mitdbg/KramaBench](https://github.com/mitdbg/KramaBench), last pushed
 | Wildfire | 21 | 120 | 23 | 1 GB | csv, gpkg, xlsx, json |
 | **Total** | **104** | **633** | **1,764** | **1.7 GB** | |
 
+Sub-task counts are upstream's README figures too. At the pinned commit the
+workload files hold 631: legal has 186, not 188.
+
 The file counts and sizes above are upstream's README figures. The pinned
 commit `b2e0d77` (fetched 2026-10-06) has 1,742 files and 666.9 MB under
 `data/`: archeology (spelled so on disk) 5, astronomy 1,538, biomedical 8,
@@ -36,7 +41,7 @@ other `data_sources` entries do not resolve case-sensitively; see
 - **Discovery has ground truth.** Each task's `data_sources` field lists the
   files it needs (some as globs). Each task also has a `deepresearch_subset`
   field: the needed files mixed with distractors.
-- **Intermediate steps can be evaluated.** The 633 sub-tasks can be run as
+- **Intermediate steps can be evaluated.** The 631 sub-tasks can be run as
   separate prompted tasks. This differs from evaluating intermediate values
   in one end-to-end program; upstream pipeline evaluation uses a model.
 - **Discovery is trivial in some domains.** Archaeology has 5 files and
@@ -99,11 +104,37 @@ use validated JSON or a safe literal parser. Document any resulting upstream
 deviation. Equal-weight task means are the default answer-score aggregate;
 report per-type and per-domain results as well.
 
+**As implemented in D1** (`eval/kramabench/scoring.py`, profile
+`local-deterministic-v1`). The comparators are a port of upstream
+`benchmark/metrics.py` at `b2e0d77`; the file and the answer-type fixture
+mapping are pinned by SHA-256. An offline test loads the upstream module
+itself, with its LLM and NLP imports stubbed, and checks that the port
+agrees on a grid of synthetic predictions and targets. It runs whenever
+the evaluator store is present. Upstream cannot be imported directly:
+`metrics.py` imports its OpenAI client at load, and `F1` calls `eval()` on
+model output. Pinned behaviour, kept as upstream has it: `success` lowercases
+and strips strings, compares numbers (including numeric strings) exactly, and
+accepts a float within 1e-6 relative, 1e-6 absolute, or 1e-4 of the larger
+magnitude; for a zero target it requires |p| < 1e-6. `try_convert_to_number`
+strips `%` without dividing, while `rae_score` and list parsing divide by 100.
+Booleans count as integers. `rae_score` is 1 / (1 + |p - t| / |t|) and 0 for
+a zero target. List elements match strings case-insensitively and numbers
+within 1e-6 relative (`f1`) or 1% (`f1_approximate`). Deviations: the two
+judge rows in the table above; `ast.literal_eval` in place of `eval()` (the
+same result for literals, and expressions are never executed); a NaN
+`rae_score` becomes 0; and every task in the frozen manifest gets a score row,
+whereas upstream `evaluate_results` silently drops tasks whose evaluation
+raises. Every gold answer in the 104 tasks and both smoke tasks scores 1.0
+and strict under this profile (offline test).
+
 Report the continuous answer score separately from **strict answer accuracy**:
 exact types must pass the pinned comparator, list types require F1 = 1, and
 numeric-approximate answers must meet an absolute/relative tolerance frozen
 in D1 before model evaluation. Approximate strings use the deterministic
 comparison in this variant. Do not call a mean partial-credit score accuracy.
+Frozen in D1 before any model run: `numeric_approximate` is strict when
+|p - t| <= max(1e-6, 0.01 |t|). The 1% is upstream's own list-element
+tolerance in `F1Approximate`.
 
 An upstream-compatible judged comparison is optional, requires a declared
 spend cap, and runs separately. Pin judge, prompts, settings, aggregation,
@@ -132,7 +163,9 @@ changes execution and interaction, so neither gap is a pure causal attribution.
 Whether the agent sees each task's `answer_type` is decided in D1 and applied
 identically in all three conditions. It is a format specification, not gold,
 but it changes the task, so record it in every run and report it alongside
-any comparison with upstream numbers.
+any comparison with upstream numbers. **Decided: hidden**
+(`eval.answer_type_visible: false`); see
+[D1 progress](implementation-plan.md#d1-progress).
 
 The end-to-end policy is catalogue-mediated access: IDs must first be returned
 by search, then explicitly selected for a `run_python` call. The application
@@ -190,7 +223,7 @@ report error among answered tasks, with coverage explicit.
   exploratory label.
 - Run a fixed baseline and each candidate on the same tasks and report paired
   differences with uncertainty. With 104 tasks, small gains won't be
-  significant. Sub-tasks offer diagnostic detail, not 633 independent samples.
+  significant. Sub-tasks offer diagnostic detail, not 631 independent samples.
   Resample paired parent tasks (preserving domain strata) and keep their
   sub-tasks together; state the uncertainty method and sample counts.
 - Repeat model-dependent runs to estimate run-to-run variance.

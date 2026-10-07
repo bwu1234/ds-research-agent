@@ -47,3 +47,16 @@ kramabench:
   checkout: /ABS/PATH/ds-research-agent/data/kramabench/repo
   visible_root: /ABS/PATH/ds-research-agent/data/kramabench/visible
   evaluator_root: /ABS/PATH/ds-research-agent/data/kramabench/evaluator
+
+eval:
+  ledger_path: /ABS/PATH/ds-research-agent/data/runs/ledger.sqlite3
+  split_seed: 20261007
+  dev_fraction: 0.5
+  split_sha256: 70fe80e1abefd246065a40bc22a6c61bd0badc45f02e6c8e91c7fd5a8fb77f93  # frozen 2026-10-07; runs refuse any other split
+  sample_per_domain: 2
+  answer_type_visible: false # decided in D1; see docs/implementation-plan.md
+  task_timeout_s: 900          # <= model.request_timeout_s
+  max_output_tokens: 8192
+  inline_max_chars: 30000
+  bootstrap_resamples: 10000
+  bootstrap_seed: 0
