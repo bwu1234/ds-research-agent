@@ -633,7 +633,10 @@ The holdout is smaller than 104 tasks, so estimates will be coarse.
 
 A public page with the architecture, the evaluation setup, given-files versus
 end-to-end versus no-tools scores, the ablations, time per task, a provenance
-demo using synthetic data, failure analysis, and limitations. Distinguish the
+demo using synthetic data, failure analysis, limitations, and related work.
+Related work places the agent against published systems and the vendor designs
+under [Vendor designs](#vendor-designs-checked-2026-10-07). It claims only what
+their documentation shows, not how the products behave. Distinguish the
 local scoring variant from upstream results. Include no benchmark answers and no
 benchmark data, because the KramaBench licence is unclear (see
 [evaluation-plan.md](evaluation-plan.md)).
@@ -679,13 +682,36 @@ here.
 | Explore-first enforcement: the agent must inspect real files, schemas, and dtypes before writing analysis code, with "data not found" and "data misread" as separate failure classes. | Mostly: cards, given-files runs, and the failure taxonomy; no enforced inspection step | D3 loop and taxonomy | DSBench and DA-Code qualitative failure analyses (medium-low) |
 | Curated library of pre-validated cleaning tools. The schemas must stay byte-stable for prefix caching. | No | After D3 measurements, if wrangling errors dominate the taxonomy | AutoKaggle: valid submissions 0.58 to 0.88 with cleaning tools; feature-engineering tools added nothing; 4 tasks (medium-low) |
 | Compaction policy for long runs, for example an append-only prefix with occasional summary checkpoints. | No: context is append-only by design | Decide in D3 from measured context growth | AIDE summarizes a solution tree instead of appending history. This conflicts with prefix reuse, so it is a trade-off, not evidence against append-only (medium) |
-| Retrieval of prior solutions coupled to run feedback. | No | Defer. It needs a case bank built from ledger runs, which raises the contamination risks this project already guards against. | DS-Agent ReviseRank, 12 tasks with GPT-4 (low) |
+| Retrieval of prior solutions coupled to run feedback. | No | Defer. It needs a case bank built from ledger runs, which raises the contamination risks this project already guards against. | DS-Agent ReviseRank, 12 tasks with GPT-4 (low). Snowflake Cortex Analyst retrieves analyst-verified queries (vendor design, no ablation) |
+| Value index for discovery: the index job adds the distinct values of low-cardinality string columns to what `rag_search` can match, so a question naming a specific city, agency, or category finds files whose cards did not sample that value. Never an agent tool. | No: cards list at most `max_example_values` values per column | D2 retrieval-only ablation on file recall (no model calls) | Snowflake Cortex Agents pair semantic views with Cortex Search to match literal values in high-cardinality fields (vendor design, no ablation) (low) |
+| Stated interpretation: an `assumptions` field in `submit_answer` listing the interpretation choices the agent made, recorded in the ledger; "had to resolve an ambiguity" then becomes a candidate D6 abstention signal. Overlaps the analysis-decision record in the statistical-validity row. | No | D3 answer schema (before tool schemas are frozen for prefix caching); signal tested in D6 | Snowflake Cortex Analyst's classification agent rejects ambiguous questions rather than answer them misleadingly (vendor design, no ablation) (low) |
 
 Topics with no verified evidence: human-in-the-loop checkpoints, report
 generation, uncertainty reporting, and provenance. No vendor engineering
-write-ups survived verification either. Absence of evidence is not absence of
-need; provenance is already covered by D4 and
+write-ups survived verification in the survey. Absence of evidence is not
+absence of need; provenance is already covered by D4 and
 [data-and-provenance.md](data-and-provenance.md).
+
+### Vendor designs (checked 2026-10-07)
+
+A follow-up web check of vendor documentation, not adversarially verified, and
+of product descriptions rather than measured behaviour. Two shapes dominate:
+warehouse agents that generate queries through a semantic layer (Snowflake
+Cortex Analyst, Microsoft Fabric data agent, Hex notebook agent), and sandboxed
+Python over user-supplied files (ChatGPT data analysis; Julius, from
+third-party sources only). Google's Colab Enterprise Data Science Agent plans,
+then runs code in the notebook runtime over CSV files and BigQuery tables.
+Databricks Genie Code was found only in press coverage. Fabric requires
+lakehouse files to be loaded into tables before it can query them. None of the
+documentation read records per-value input hashes or reruns the program to
+check reproduction; the nearest are Hex citing the cells and projects it used
+and ChatGPT showing the code it ran. Vendor accuracy figures are self-reported
+on their own task sets and are not comparable with KramaBench. Sources:
+[Snowflake engineering blog](https://www.snowflake.com/en/blog/engineering/snowflake-cortex-analyst-behind-the-scenes/),
+[Fabric data agent](https://learn.microsoft.com/en-us/fabric/data-science/concept-data-agent),
+[Hex notebook agent](https://learn.hex.tech/docs/explore-data/notebook-view/notebook-agent),
+[ChatGPT data analysis](https://help.openai.com/en/articles/8437071-data-analysis-with-chatgpt),
+[Colab Data Science Agent](https://docs.cloud.google.com/bigquery/docs/colab-data-science-agent).
 
 Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
 (2502.13138), AutoKaggle (2410.20424), DSEval (2402.17168), DSBench
