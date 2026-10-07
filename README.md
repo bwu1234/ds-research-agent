@@ -8,10 +8,10 @@ reproduces. It uses [rag-toolkit](https://github.com/bwu1234/rag-toolkit) as
 an MCP search service over dataset cards, and a local `qwen3.8:27b-mlx` model
 through Ollama.
 
-**Status: D0 in progress.** A Python scaffold with configuration, a model
+**Status: D0 done; D1 next.** A Python scaffold with configuration, a model
 client, an MCP retrieval adapter, a dataset-card profiler with a synthetic
-fixture index, a tool-call repair policy, and a pinned KramaBench fetch script
-exist. There is no agent loop, sandbox, or score yet.
+fixture index, a tool-call repair policy, a pinned KramaBench fetch script,
+and a read-audit spike exist. There is no agent loop, sandbox, or score yet.
 
 ## Example task
 
@@ -59,9 +59,9 @@ Indexing is a separate job.
 
 ## First implementation task
 
-Complete D0: scaffold the project, pin rag-toolkit and an MCP client, fetch
-KramaBench, and prove filtered search on a small synthetic card collection
-plus one model tool-call round trip. Then establish D1's scoring and development
+D0 (scaffold, pinned rag-toolkit and MCP client, KramaBench fetch, filtered
+search on a synthetic card collection, model tool-call round trip, read-audit
+spike) is done. Next, establish D1's scoring and development
 sample and build D3's given-files workflow: sandbox, structured answer, ledger,
 observed file reads, and a fresh rerun. Expand the benchmark catalogue in D2.
 

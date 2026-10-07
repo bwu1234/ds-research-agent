@@ -2,9 +2,11 @@
 
 ## Current state
 
-D0 is in progress: the Python scaffold, validated configuration, Ollama model
+D0 is done: the Python scaffold, validated configuration, Ollama model
 client, MCP retrieval adapter, dataset-card profiler, fixture index job,
-tool-call repair policy, and KramaBench fetch script exist. Everything else is planned. Do not
+tool-call repair policy, KramaBench fetch script, and read-audit spike
+(`scripts/spike_read_audit/`, not the D3 sandbox) exist. D1 is next.
+Everything else is planned. Do not
 describe planned modules, tools, commands, evaluations, or integrations as
 implemented. Start with
 `docs/implementation-plan.md` and update milestone status with evidence as work
@@ -49,6 +51,7 @@ uv run pytest -m live -s                 # local model + live rag-toolkit server
 # KramaBench at the pinned commit, split into agent-visible and evaluator stores
 uv run python -m eval.kramabench.fetch --config config/local.yaml fetch   # or verify
 uv run python scripts/measure_tool_calls.py --config config/local.yaml --out data/measurements/tool_calls.json
+uv run python scripts/spike_read_audit/run.py --docker docker --out data/measurements/read_audit_spike.json  # needs Docker
 ```
 
 The pinned rag-toolkit lives in a separate clone with its own venv, not the

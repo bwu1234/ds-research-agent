@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 in progress; all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -317,8 +317,60 @@ Done on 2026-10-05, with evidence:
   for wildfire-hard-21). D1 must decide how these tasks count; D2 must fix
   a resolution rule for discovery labels.
 
-Remaining for D0: the read-audit spike. Group cards are deferred to D2
-(`group_count` is 0).
+- **Read-audit spike** (`scripts/spike_read_audit/`; results in
+  `data/measurements/read_audit_spike.json`, 2026-10-06). Docker Desktop
+  29.8.2 (Linux VM kernel 7.0.14-linuxkit, aarch64), strace 6.13, GDAL
+  3.12.4 via pyogrio. Each case runs in a fresh container: `--network none`,
+  read-only root, `/data` mounted read-only, one never-reused scratch
+  directory, all capabilities dropped except `SYS_PTRACE`, `SETUID`,
+  `SETGID`, `CHOWN`, `DAC_READ_SEARCH`, `no-new-privileges`, pids, memory,
+  and CPU limits. A root wrapper runs the program as uid 1000 under
+  `strace -ff -y` (open-family, exec, and clone-family syscalls) and is the
+  only writer of the container's stdout, which carries the trace; the
+  program's stdout goes to scratch as its claim. Observed reads are
+  successful opens whose returned fd resolves under `/data`. The tracee
+  ran with no effective or permitted capabilities (case `tracee_caps`).
+  Results were the same with and without `--seccomp-bpf`:
+
+  | Case | Observed |
+  |---|---|
+  | Python `open`, pandas CSV, GDAL GeoPackage, 50 MB pandas CSV | yes |
+  | Child `cat`, child Python, grandchild via nested `sh -c` | yes |
+  | Symlink in scratch, `/proc/self/fd` reopen (resolved to the real file) | yes |
+  | `mmap`, `shutil.copy` then read the copy (source open seen) | yes |
+  | Detached grandchild reading after the program exits | yes |
+  | Program kills the tracer | refused (EPERM); read observed |
+  | `io_uring_setup` | refused (EPERM) by Docker's default seccomp; not in the trace |
+  | `open_by_handle_at` with a real handle | refused (EPERM) by the kernel: tracee lacks the capability |
+  | Raw `clone(CLONE_UNTRACED)`, child reads a file | **missed**: the child is not traced; the `clone` call with the flag is in the trace |
+
+  Gaps and caveats:
+  - `CLONE_UNTRACED` defeats ptrace following. It is detectable from the
+    parent's trace, so the runner must treat any such call as incomplete
+    audit. The stronger fix is a seccomp rule that rejects `clone` with
+    that flag (and `clone3`, whose flags seccomp cannot inspect, with
+    `ENOSYS`), to be decided with the sandbox profile in D3.
+  - strace needs `CAP_DAC_READ_SEARCH` to resolve the uid-1000 tracee's
+    `/proc/<pid>/fd`; without it every returned fd was undecorated and the
+    parser saw no reads. The runner now counts undecorated successful opens
+    as audit gaps (0 in this run). Granting the capability also makes
+    Docker's default seccomp profile allow `open_by_handle_at`; only the
+    kernel's capability check now refuses it.
+  - Blocked syscalls refused by seccomp (`io_uring_setup`) do not appear in
+    the trace; a custom profile must keep them blocked.
+  - Observation is per open, not per byte read, and does not show whether
+    the contents influenced the output.
+  - Not covered: a persistent kernel traced across many calls (D3),
+    syscall numbers other than aarch64, and fanotify or a macOS-native
+    sandbox.
+
+  Overhead (median of 3, time inside the container): no-op program 0.02 s
+  plain, 0.04 s with `--seccomp-bpf`, 0.09 s ptrace only; pandas on a 5-row
+  CSV 0.29 / 0.41 / 0.73 s; pandas on the 50 MB CSV 0.55 / 0.62 / 0.93 s.
+  `--seccomp-bpf` is the faster audit mode. Container start-up is excluded
+  from these figures; `container_wall_s` in the JSON includes it.
+
+D0 is complete. Group cards are deferred to D2 (`group_count` is 0).
 
 Acceptance: discovery and a filtered search work through MCP for the fixture
 collection, and returned document IDs resolve through its manifest. Record
@@ -572,8 +624,10 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
 - Sandbox technology: a Docker container or a lighter macOS-native option.
   Decide in D3 from measured isolation, read-auditing coverage, and startup time.
 - Read-audit mechanism. On macOS, Docker runs containers in a Linux VM, so the
-  auditor must run inside it (for example `strace -f` or fanotify). Informed
-  by the D0 spike; decided in D3.
+  auditor must run inside it (for example `strace -f` or fanotify). The D0
+  spike found `strace -ff -y --seccomp-bpf` in a restricted container
+  observed every case except a `CLONE_UNTRACED` child, which is detectable
+  but needs a seccomp rule to prevent (see D0 progress). Decided in D3.
 - Whether the agent sees `answer_type`. Decide in D1.
 - Group-card granularity: by directory, by shared schema, or both. Decide in
   D2 from development retrieval results.
