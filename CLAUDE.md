@@ -5,7 +5,10 @@
 D0 is done: the Python scaffold, validated configuration, Ollama model
 client, MCP retrieval adapter, dataset-card profiler, fixture index job,
 tool-call repair policy, KramaBench fetch script, and read-audit spike
-(`scripts/spike_read_audit/`, not the D3 sandbox) exist. D1 is next.
+(`scripts/spike_read_audit/`, not the D3 sandbox) exist. D1's harness exists:
+local deterministic scorer, frozen split, SQLite run ledger, no-tools and
+inlined-files baselines, replay, and reports (`eval/kramabench/`); its model
+runs and D1 sign-off are in progress.
 Everything else is planned. Do not
 describe planned modules, tools, commands, evaluations, or integrations as
 implemented. Start with
@@ -52,7 +55,16 @@ uv run pytest -m live -s                 # local model + live rag-toolkit server
 uv run python -m eval.kramabench.fetch --config config/local.yaml fetch   # or verify
 uv run python scripts/measure_tool_calls.py --config config/local.yaml --out data/measurements/tool_calls.json
 uv run python scripts/spike_read_audit/run.py --docker docker --out data/measurements/read_audit_spike.json  # needs Docker
+# D1: split (frozen by eval.split_sha256), baselines, replay, reports
+uv run python -m eval.kramabench.split --config config/local.yaml verify
+uv run python -m eval.kramabench.run --config config/local.yaml run --condition no_tools --tasks smoke
+uv run python -m eval.kramabench.run --config config/local.yaml replay --batch <id>   # no model
+uv run python -m eval.kramabench.run --config config/local.yaml report --batch <id>
+scripts/run_d1.sh config/local.yaml > data/runs/d1.log 2>&1   # all D1 model runs, ~12-14 h
 ```
+
+The holdout is sealed: `run --tasks holdout` needs `--unseal-holdout`, which
+is for D5 only.
 
 The pinned rag-toolkit lives in a separate clone with its own venv, not the
 main rag-toolkit working tree, so in-progress upstream work cannot change it.

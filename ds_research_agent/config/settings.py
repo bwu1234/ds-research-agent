@@ -104,6 +104,36 @@ class KramaBenchSettings(_Strict):
     evaluator_root: Path
 
 
+class EvalSettings(_Strict):
+    # SQLite run ledger (ignored by Git: it quotes model answers).
+    ledger_path: Path
+    # Development/holdout split, stratified by domain and difficulty. The
+    # split is a pure function of the pinned workload, ``split_seed`` and
+    # ``dev_fraction``; ``split_sha256`` freezes it, and runs refuse a split
+    # whose hash differs. Null only before the split is first frozen.
+    split_seed: int
+    dev_fraction: float = Field(gt=0, lt=1)
+    split_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    # Development tasks for the first D3 workflow, one per domain.
+    sample_per_domain: PositiveInt
+    # Whether prompts state the task's ``answer_type``; recorded on every run
+    # and applied identically across conditions.
+    answer_type_visible: bool
+    # Wall-clock cap per task; a capped run is incomplete and scores zero.
+    # Must not exceed model.request_timeout_s, or the client times out first.
+    task_timeout_s: PositiveFloat
+    # Generated tokens (thinking included) per model request, sent to Ollama
+    # as ``num_predict``. A reply cut at the cap ends with done_reason
+    # "length" and is recorded as budget_exhausted.
+    max_output_tokens: PositiveInt
+    # Inlined-files baseline: total characters of file text in the prompt,
+    # shared across the task's files (unused shares are redistributed).
+    inline_max_chars: PositiveInt
+    # Percentile bootstrap over parent tasks, resampled within domain.
+    bootstrap_resamples: PositiveInt
+    bootstrap_seed: int
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="DSRA_",
@@ -118,6 +148,7 @@ class Settings(BaseSettings):
     rag_service: RagServiceSettings
     agent: AgentSettings
     kramabench: KramaBenchSettings
+    eval: EvalSettings
 
     @classmethod
     def settings_customise_sources(

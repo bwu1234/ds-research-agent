@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 harness implemented and model runs in progress (2026-10-07); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -410,6 +410,107 @@ baselines are reported on the development split, along with measured time per
 task and an estimate of how long a full run takes. The `answer_type` decision
 and the chosen thinking level are recorded with their evidence.
 
+### D1 progress
+
+Implemented on 2026-10-07 (offline checks: `uv run pytest`):
+
+- **Tasks and inputs** (`eval/kramabench/tasks.py`). 104 main tasks and the
+  two smoke tasks are loaded from the evaluator store and keyed
+  `<workload>/<id>`, because the `-tiny` workloads reuse parent IDs with
+  different fields: `legal-tiny/legal-hard-1` has a different answer type,
+  sources, and sub-tasks from `legal/legal-hard-1`. Gold answers live in a
+  separate field that prompt builders never receive. One resolver, also used
+  by `fetch verify`, maps `data_sources` entries in tiers: `exact` (268),
+  `nested` (35), `casefold` (5: the case-only mismatches, so a Linux sandbox
+  gets the same files as macOS), and `unresolved` (6: a typo, `omni2.txt`
+  twice, a glob that matches no file names, and the two absent wildfire
+  files). **D0 open item decided:** tasks with unresolved entries stay in
+  every denominator. They get the files that do resolve, and each run
+  records the unresolved entries. `legal-hard-29` and `legal-hard-30`
+  resolve only through `casefold`.
+- **Split** (`eval/kramabench/split.py`; open decision closed). The split is
+  development 53 and holdout 51, stratified by domain and difficulty (31 hard
+  tasks on each side). The quota per domain is round-half-up of half the
+  domain; easy and hard share it by largest remainder; seed `20261007`. Smoke
+  parents are placed in development first. The split is a pure function of
+  the pinned workload files and these settings, so the task lists are never
+  committed. `split.json` is written next to `fetch.json`, and
+  `eval.split_sha256` (`70fe80e1…`) freezes it: every run recomputes the
+  split and refuses a different hash. The fixed development sample for D3
+  and the thinking-level sweep is 12 tasks: 2 per domain, alternating easy
+  and hard, chosen only from tasks whose sources all resolve. `run` refuses
+  the holdout without `--unseal-holdout`.
+- **Scorer** (`eval/kramabench/scoring.py`, profile
+  `local-deterministic-v1`). The scorer is a port of upstream `metrics.py`
+  with every deviation listed. An offline test checks it against the
+  pinned upstream file itself, and every gold answer scores 1.0 and strict.
+  Details are in [evaluation-plan.md](evaluation-plan.md#scoring-policy).
+  Strict `numeric_approximate` tolerance (frozen before any model run):
+  `max(1e-6, 1% of |target|)`.
+- **Ledger** (`ds_research_agent/ledger/`; SQLite schema 1). Batch, Run,
+  Step, Answer, and Score records, described in
+  [data-and-provenance.md](data-and-provenance.md#durable-records).
+- **Baselines** (`eval/kramabench/baselines.py`). Each makes one request
+  with no tools and uses a byte-stable system prompt per condition. The
+  answer is the last JSON object with an `answer` key in the reply content,
+  parsed with `json` only. *No tools*: the question only. *Inlined files*:
+  the resolved labelled files in sorted order. The `eval.inline_max_chars`
+  budget (30,000) is shared by water-filling: equal shares, with what short
+  files leave redistributed. Text is cut at a line break where possible.
+  xlsx sheets are rendered as CSV text (`openpyxl` 3.1.5, read-only),
+  because otherwise nearly all of biomedical would be shown no data. gpkg,
+  cdf, and npz files (6 references) are listed as omitted. Per-file headers
+  are outside the budget (the 124-file astronomy task adds about 17k
+  characters). Every run records each file's hash, encoding, and
+  shown/truncated/omitted status.
+- **Budgets.** Each request is capped at `eval.max_output_tokens` (8,192,
+  sent as `num_predict`). A reply cut at the cap is `budget_exhausted`;
+  `eval.task_timeout_s` (900) must not exceed `model.request_timeout_s`. All
+  failures (timeout, model error, malformed or missing answer, budget
+  exhausted, or a planned run with no row) score 0 in every aggregate.
+- **Replay.** Each step stores the exact request and its SHA-256 and the
+  response as returned. `run replay` re-runs a batch through
+  `ReplayClient`, which refuses any request whose hash differs, with no
+  model or network, and fails unless every answer and score matches.
+- **Reports** (`run report`, `compare`, `choose-think`). These give
+  equal-weight task means, strict accuracy, and 95% percentile-bootstrap
+  intervals that resample parent tasks within domain (10,000 resamples,
+  seed 0). Paired differences use shared resamples. Each report also gives
+  per-domain and per-type scores, stop reasons, time, tokens, and a
+  throughput model. Reports print aggregates only.
+
+**`answer_type` visibility: hidden** (`eval.answer_type_visible: false`).
+Upstream's system interface (`System.serve_query(query, query_id,
+subset_files)` at `b2e0d77`) does not pass the answer type. Keeping it hidden
+keeps the task the one upstream systems were scored on, and it is applied
+identically in every condition. The cost is formatting failures, which the
+D3 failure taxonomy counts. This was decided from the protocol, not measured.
+A paired visible-versus-hidden run on the sample would be an optional
+development diagnostic.
+
+**Thinking-level rule, registered before the sweep ran.** Inline baseline
+at `off`, `low`, `medium`, and `xhigh` on the 12-task sample. Choose the
+level with the lowest median wall time whose mean answer score is within
+one task's worth (1/12) of the best (`report.choose_think`). The sweep is a
+single-shot baseline, not the agent loop; D3 may revisit the level with
+loop measurements.
+
+First measurements (2026-10-07):
+
+- **No-tools smoke** (2 tasks, think `medium`): both answers parsed, 61 s
+  median per task, about 1,250 output tokens, 22.8 generated tokens/s.
+  Replaying it from the ledger gave 0 differences.
+- **First inline smoke** (60,000-character budget, no output cap): the
+  environment smoke prompt was 34,023 tokens. CSV text measured about 1.8
+  characters per token, not the 3 assumed. Prefill took about 6 minutes;
+  `medium` thinking then ran until the 900 s client timeout. The request
+  was not streamed, so nothing partial was recorded. That run led to the
+  30,000-character budget, the 8,192-token output cap, and the
+  timeout-consistency check.
+
+`scripts/run_d1.sh` runs the remaining sequence: smoke, sweep, the level
+choice, both development baselines, then a replay check of every batch.
+
 ## D2 — Catalogue expansion and discovery
 
 - Expand the profiler and index to all 1,742 benchmark files. Each has a card;
@@ -593,6 +694,10 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
 
 ## Decided
 
+- Development/holdout split: 53/51, stratified by domain and difficulty,
+  frozen by hash (D1, 2026-10-07).
+- `answer_type` is hidden from the agent in every condition (D1, 2026-10-07).
+
 - The main model is `qwen3.8:27b-mlx` through Ollama.
 - KramaBench data and answers are used locally only. No outreach to the
   authors.
@@ -620,7 +725,6 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
 
 ## Open decisions
 
-- Development/holdout split ratio, given 104 tasks.
 - Sandbox technology: a Docker container or a lighter macOS-native option.
   Decide in D3 from measured isolation, read-auditing coverage, and startup time.
 - Read-audit mechanism. On macOS, Docker runs containers in a Linux VM, so the
@@ -628,7 +732,6 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
   spike found `strace -ff -y --seccomp-bpf` in a restricted container
   observed every case except a `CLONE_UNTRACED` child, which is detectable
   but needs a seccomp rule to prevent (see D0 progress). Decided in D3.
-- Whether the agent sees `answer_type`. Decide in D1.
 - Group-card granularity: by directory, by shared schema, or both. Decide in
   D2 from development retrieval results.
 - Persistent kernel implementation (for example a Jupyter kernel in the

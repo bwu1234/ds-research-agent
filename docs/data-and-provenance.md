@@ -1,6 +1,8 @@
 # Data, catalogue, and provenance
 
-Status: the D0 file-card schema, manifest, and KramaBench fetch are implemented; other records are proposed.
+Status: the D0 file-card schema, manifest, and KramaBench fetch are
+implemented, and the D1 run ledger implements the Run, Step, Answer, and Score
+records (plus an evaluation batch). Program and Verification are proposed.
 
 ## Data handling
 
@@ -144,6 +146,23 @@ exactly its listed members. Grouping is deterministic. Its granularity
 
 Use timezone-aware UTC timestamps. Store the records in SQLite and large
 outputs as files under an ignored `artifacts/` directory, referenced by hash.
+
+**D1 ledger** (`ds_research_agent/ledger/`, schema version 1, at
+`eval.ledger_path`, ignored by Git). A `batches` row fixes one condition
+and configuration over a planned task list. It records the configuration and
+its hash, repository revision and dirty flag, KramaBench commit, frozen split
+hash, model settings, Ollama version, `answer_type` visibility, scoring
+profile, system-prompt hash, and the batch it replays, if any. `runs`, `steps`,
+`answers`, and `scores` follow the table above. Each step stores the exact
+request (messages, model settings, tool schemas) with its SHA-256 and the
+response as returned, so a batch can be replayed without the model. Ollama
+does not split thinking from output tokens or cached from evaluated prompt
+tokens. Steps therefore record output tokens including thinking, thinking
+characters, and prompt-eval duration; the evaluated-versus-cached split is
+still open (see D0). Run inputs for the inlined baseline record each
+`data_sources` entry's resolution tier and, per file, the path, size,
+SHA-256, format, encoding, and shown or omitted status. Large outputs stay
+inline until programs exist (D3).
 The D3 given-files workflow needs a raw-input manifest before the full D2 index
 exists; its catalogue generation may be null, but paths and hashes are required.
 

@@ -5,9 +5,11 @@ description = "Data research agent: discover files, analyse in a sandbox, answer
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "defusedxml==0.7.1",
     "jsonschema==4.26.0",
     "mcp==2.3.0",
     "ollama==0.6.3",
+    "openpyxl==3.1.5",
     "pydantic==2.13.5",
     "pydantic-settings==2.15.0",
     "pyyaml>=6.0",
@@ -21,6 +23,7 @@ dev = [
     "types-pyyaml",
     "pytest-asyncio>=1.4.0",
     "types-jsonschema>=4.26.0.20261006",
+    "types-openpyxl>=3.1.5.20260827",
 ]
 
 [build-system]

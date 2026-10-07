@@ -8,10 +8,12 @@ reproduces. It uses [rag-toolkit](https://github.com/bwu1234/rag-toolkit) as
 an MCP search service over dataset cards, and a local `qwen3.8:27b-mlx` model
 through Ollama.
 
-**Status: D0 done; D1 next.** A Python scaffold with configuration, a model
+**Status: D0 done; D1 in progress.** A Python scaffold with configuration, a model
 client, an MCP retrieval adapter, a dataset-card profiler with a synthetic
 fixture index, a tool-call repair policy, a pinned KramaBench fetch script,
-and a read-audit spike exist. There is no agent loop, sandbox, or score yet.
+a read-audit spike, and a D1 evaluation harness (local deterministic scorer,
+frozen split, run ledger, no-tools and inlined-files baselines) exist. There
+is no agent loop or sandbox yet.
 
 ## Example task
 
@@ -25,7 +27,7 @@ reproduced it.
 ## Evaluation
 
 The main benchmark is [KramaBench](https://github.com/mitdbg/KramaBench): 104
-tasks and 633 sub-tasks over 1,742 files in 6 domains (at the pinned commit). It is scored under
+tasks and 631 sub-tasks over 1,742 files in 6 domains (at the pinned commit). It is scored under
 three conditions: no tools, given files, and end to end. See the
 [evaluation plan](docs/evaluation-plan.md).
 

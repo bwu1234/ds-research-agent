@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from ds_research_agent.config import KramaBenchSettings, load_settings
+from eval.kramabench.tasks import resolve_sources
 
 VISIBLE_SOURCE = "data"
 # Per-task copies of data/ files; cataloguing them would duplicate the pool.
@@ -161,33 +162,24 @@ def fetch(s: KramaBenchSettings) -> dict[str, Any]:
 def check_sources(s: KramaBenchSettings) -> dict[str, Any]:
     """Resolve every task's ``data_sources`` against the visible store.
 
-    Upstream paths are nominally relative to ``data/<domain>/input`` and may
-    be globs, but some omit intermediate directories. Each entry is counted
-    as ``exact`` (matches under ``input``), ``nested`` (matches only as
-    ``**/<entry>``), or unresolved. How discovery scoring resolves entries is
-    a D2 decision; this only reports. Matching is case-sensitive, as on the
-    Linux sandbox, even though macOS volumes usually are not. Counts and
-    paths only, never answers.
+    Counts entries per tier of :func:`eval.kramabench.tasks.resolve_sources`
+    (``exact``, ``nested``, ``casefold``, ``unresolved``) and lists the
+    unresolved ones. Counts and paths only, never answers.
     """
     tasks = 0
     tiers: Counter[str] = Counter()
     unresolved: list[str] = []
     for wl in sorted((s.evaluator_root / "workload").glob("*.json")):
         domain = wl.stem.removesuffix("-tiny")
-        base = s.visible_root / domain / "input"
-        if not base.is_dir():
+        if not (s.visible_root / domain / "input").is_dir():
             continue  # e.g. quick-start-questions.json
         for task in json.loads(wl.read_text(encoding="utf-8")):
             tasks += 1
-            for src in task.get("data_sources", []):
-                pattern = src.rstrip("/") + ("/*" if src.endswith("/") else "")
-                if any(p.is_file() for p in base.glob(pattern, case_sensitive=True)):
-                    tiers["exact"] += 1
-                elif any(p.is_file() for p in base.glob(f"**/{pattern}", case_sensitive=True)):
-                    tiers["nested"] += 1
-                else:
-                    tiers["unresolved"] += 1
-                    unresolved.append(f"{wl.stem}/{task['id']}: {src}")
+            sources = tuple(task.get("data_sources", ()))
+            for r in resolve_sources(domain, sources, s.visible_root):
+                tiers[r.tier] += 1
+                if r.tier == "unresolved":
+                    unresolved.append(f"{wl.stem}/{task['id']}: {r.entry}")
     return {"tasks": tasks, "entries": dict(tiers), "unresolved": unresolved}
 
 
