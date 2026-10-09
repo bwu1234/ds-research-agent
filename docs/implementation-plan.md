@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 harness implemented and model runs in progress (2026-10-07); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -508,8 +508,77 @@ First measurements (2026-10-07):
   30,000-character budget, the 8,192-token output cap, and the
   timeout-consistency check.
 
-`scripts/run_d1.sh` runs the remaining sequence: smoke, sweep, the level
-choice, both development baselines, then a replay check of every batch.
+`scripts/run_d1.sh` runs the sequence (resumable, `--resume` on every batch):
+smoke, sweep, the level choice, both development baselines, then a replay
+check of every batch. It ran on 2026-10-07 and 2026-10-08, with one
+deliberate stop and resume. The interrupted task was discarded and redone.
+
+**Results** (Ollama 0.35.1, `qwen3.8:27b-mlx`, temperature 0, seed 0, one
+run per task, repository uncommitted at run time so ledger rows record a dirty
+tree, scoring profile `local-deterministic-v1`, `answer_type` hidden, 8,192
+output-token cap). Aggregates only; intervals are 95% percentile bootstrap
+over parent tasks within domain.
+
+*Thinking-level sweep* (inlined files, 30,000-character budget, the fixed
+12-task sample). The pre-registered rule chose **thinking off**.
+
+| Level | Answer score | Answered / hit cap | Median wall | Median output tokens |
+|---|---|---|---|---|
+| off | 0.333 | 7 / 5 | 414 s | 5,405 |
+| low | 0.167 | 5 / 7 | 484 s | 8,192 |
+| medium | 0.167 | 6 / 6 | 463 s | 7,265 |
+| xhigh | 0.167 | 6 / 6 | 487 s | 8,024 |
+
+The evidence is weak: the margin is two tasks of 12, and about half of all
+runs at every level hit the output cap. Thinking levels spent more tokens
+and did not improve the answers in this single-shot setting. It is a
+single-shot baseline, so D3 must recheck the level inside the agent loop.
+
+*Development split, 53 tasks, thinking off:*
+
+| Baseline | Answer score (95% CI) | Strict accuracy (95% CI) | Answered / cap / malformed | Wall: median, mean | Full dev run |
+|---|---|---|---|---|---|
+| No tools | 0.090 (0.036–0.155) | 3.8% (0–9.4%) | 49 / 3 / 1 | 73 s, 92 s | 1.35 h |
+| Inlined files | 0.414 (0.306–0.520) | 35.8% (26.4–45.3%) | 44 / 9 / 0 | 281 s, 291 s | 4.29 h |
+
+Paired difference (inlined minus no tools): answer score +0.324 (0.201 to
+0.443), strict accuracy +0.321 (0.208 to 0.434). Verified success does not
+apply (no program). The 9 capped inlined runs and the 4 unparseable
+no-tools runs all score 0 in these numbers.
+
+By domain (inlined, answer score): legal 0.73, astronomy 0.50, environment
+0.40, wildfire 0.36, **archeology 0.00, biomedical 0.00**. Both zero
+domains label xlsx files; their sheets are rendered as CSV, truncated to
+the budget. The zeros are not diagnosed: the file text may be inadequate, or
+the model may have failed on the questions themselves.
+No-tools strict successes (2 of 53) are one `numeric_exact` and one
+`string_exact`; this probe cannot say whether they are memorisation or
+chance.
+
+*Operations and throughput.* Cold prefill measured 103 to 137 tokens/s and
+generation 22 to 23 tokens/s. A full dev run is 1.35 h no-tools and 4.29 h
+inlined at this budget; the same figures put the holdout at 1.30 h and
+4.13 h. A D3 agent step, at 1,000 tool-output tokens and the inlined
+batch's median output, comes to about 155 s, so 10 steps are about 26
+minutes per task and the 53-task development split would take about 22 h
+at 10 steps per task. D3 must choose per-step output and step caps with
+this in mind. The model-throughput model is in the report's `throughput`
+block.
+
+*Replay.* All 7 batches (smoke, four sweep levels, both development
+baselines; 144 runs) replay from recorded responses with 0 differences in
+answers and scores.
+
+Limitations: one run per task and no repeat, so run-to-run variance is
+unmeasured. The sweep has 12 tasks. A third of inlined runs hit the output cap,
+so the inlined score is a floor for what this model could do with more
+tokens. Whether a higher cap would change the picture is not measured
+(a diagnostic rerun of the capped sample tasks at 16,384 tokens is
+optional and not run). The archeology and biomedical zeros are undiagnosed.
+
+D1 acceptance (replay identical; both baselines on the development split
+with time per task and a full-run estimate; `answer_type` and thinking level
+recorded with evidence) is met.
 
 ## D2 — Catalogue expansion and discovery
 
