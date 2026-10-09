@@ -7,8 +7,8 @@ client, MCP retrieval adapter, dataset-card profiler, fixture index job,
 tool-call repair policy, KramaBench fetch script, and read-audit spike
 (`scripts/spike_read_audit/`, not the D3 sandbox) exist. D1's harness exists:
 local deterministic scorer, frozen split, SQLite run ledger, no-tools and
-inlined-files baselines, replay, and reports (`eval/kramabench/`); its model
-runs and D1 sign-off are in progress.
+inlined-files baselines, replay, and reports (`eval/kramabench/`). D1 is done
+(results in `docs/implementation-plan.md`); D3 is next.
 Everything else is planned. Do not
 describe planned modules, tools, commands, evaluations, or integrations as
 implemented. Start with
