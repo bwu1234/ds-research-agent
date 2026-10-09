@@ -41,6 +41,20 @@ rag_service:
 agent:
   tool_call_max_repairs: 2
 
+sandbox:
+  docker: docker
+  image: dsra-sandbox:d3
+  work_root: /ABS/PATH/ds-research-agent/data/sandbox
+  wall_timeout_s: 300
+  host_grace_s: 30
+  cpu_time_s: 600
+  max_file_bytes: 1073741824 # per file the program writes, stdout included
+  memory_mb: 8192
+  cpus: 4
+  pids_limit: 256
+  tmp_mb: 256
+  max_output_chars: 20000
+
 kramabench:
   repo_url: https://github.com/mitdbg/KramaBench.git
   commit: b2e0d77540263f8b6119f977fe79a8c4386b5a02

@@ -6,6 +6,7 @@ from ds_research_agent.config.settings import (
     McpSettings,
     ModelSettings,
     RagServiceSettings,
+    SandboxSettings,
     Settings,
     load_settings,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "McpSettings",
     "ModelSettings",
     "RagServiceSettings",
+    "SandboxSettings",
     "Settings",
     "load_settings",
 ]

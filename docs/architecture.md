@@ -101,9 +101,10 @@ sandbox must:
   survives between `run_python` calls. Read auditing covers the kernel for its
   whole life, not just individual calls. The verifier never reuses it.
 
-A restricted Docker container is the initial candidate. D3 decides between it
-and a lighter option from measured isolation, read-auditing coverage, and
-startup time. Container defaults alone do not establish these properties. A
+The sandbox is a restricted Docker container (decided in D3; implemented in
+`ds_research_agent/sandbox/`, persistent kernel still to come). Container
+defaults alone do not establish these properties; `tests/sandbox/` checks
+them against real containers. A
 plain subprocess on the host does not meet the requirements. On macOS, Docker
 runs containers inside a Linux VM, so the read auditor (for example `strace -f`
 or fanotify) runs inside that VM or container under runner control. The D0
