@@ -38,8 +38,9 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "live: calls the local model or a live MCP server; excluded by default",
+    "docker: runs sandbox containers (needs Docker, no model); excluded by default",
 ]
-addopts = "-m 'not live'"
+addopts = "-m 'not live and not docker'"
 
 [tool.ruff]
 line-length = 100

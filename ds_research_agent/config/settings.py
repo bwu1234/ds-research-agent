@@ -91,6 +91,28 @@ class AgentSettings(_Strict):
     tool_call_max_repairs: NonNegativeInt
 
 
+class SandboxSettings(_Strict):
+    # Docker CLI; containers run in Docker Desktop's Linux VM on macOS.
+    docker: str
+    # Tag the runner builds from ds_research_agent/sandbox/image and runs.
+    image: str
+    # Host directory holding one never-reused directory per sandbox run.
+    work_root: Path
+    # Wall clock per program, enforced inside the container; the host adds
+    # ``host_grace_s`` before it kills the container itself.
+    wall_timeout_s: PositiveInt
+    host_grace_s: PositiveInt
+    # Program limits (RLIMIT_CPU, RLIMIT_FSIZE); container limits below.
+    cpu_time_s: PositiveInt
+    max_file_bytes: PositiveInt
+    memory_mb: PositiveInt
+    cpus: PositiveFloat
+    pids_limit: PositiveInt
+    tmp_mb: PositiveInt
+    # Characters of program stdout and stderr returned to the caller each.
+    max_output_chars: PositiveInt
+
+
 class KramaBenchSettings(_Strict):
     repo_url: str
     # Full 40-hex commit; the fetch refuses anything else.
@@ -147,6 +169,7 @@ class Settings(BaseSettings):
     catalogue: CatalogueSettings
     rag_service: RagServiceSettings
     agent: AgentSettings
+    sandbox: SandboxSettings
     kramabench: KramaBenchSettings
     eval: EvalSettings
 
