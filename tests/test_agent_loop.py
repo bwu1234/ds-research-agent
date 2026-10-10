@@ -34,7 +34,15 @@ from ds_research_agent.models import (
     ToolSpec,
     Usage,
 )
-from ds_research_agent.sandbox import AuditResult, CellResult, ObservedRead, SandboxRun, SessionEnd
+from ds_research_agent.sandbox import (
+    AuditResult,
+    CellResult,
+    ObservedRead,
+    SandboxError,
+    SandboxRun,
+    SandboxUnavailable,
+    SessionEnd,
+)
 
 F = "/data/legal/input/a.csv"
 G = "/data/legal/input/b.csv"
@@ -136,7 +144,9 @@ class Script:
 
 
 class FakeWorkspace:
-    def __init__(self, cells: Sequence[CellResult] = (), final: SandboxRun | None = None) -> None:
+    def __init__(
+        self, cells: Sequence[CellResult | Exception] = (), final: SandboxRun | None = None
+    ) -> None:
         self.cells = list(cells)
         self.final = final or rerun('{"answer": 3}')
         self.executed: list[tuple[str, int]] = []
@@ -149,7 +159,10 @@ class FakeWorkspace:
 
     async def execute(self, code: str, timeout_s: int) -> CellResult:
         self.executed.append((code, timeout_s))
-        return self.cells.pop(0) if self.cells else cell()
+        item = self.cells.pop(0) if self.cells else cell()
+        if isinstance(item, Exception):
+            raise item
+        return item
 
     async def rerun(self, program: str) -> SandboxRun:
         self.reruns.append(program)
@@ -289,6 +302,16 @@ async def test_budget_notice_on_the_last_steps_keeps_context_append_only() -> No
 def test_user_prompt_states_the_turn_budget() -> None:
     assert "turns" not in user_prompt("Q?", [(F, 1)], None)
     assert "You have 12 turns" in user_prompt("Q?", [(F, 1)], None, 12)
+
+
+async def test_sandbox_failure_ends_the_run_but_docker_outage_propagates() -> None:
+    ws = FakeWorkspace([SandboxError("container is gone")])
+    out, _ = await go(Script(reply(py())), ws)
+    assert out.stop_reason == "sandbox_error" and "container is gone" in (out.error or "")
+    down = FakeWorkspace([SandboxUnavailable("Docker is unreachable")])
+    with pytest.raises(SandboxUnavailable):
+        await go(Script(reply(py())), down)
+    assert down.closed
 
 
 async def test_wall_budget_ends_the_run() -> None:

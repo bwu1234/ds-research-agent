@@ -3,10 +3,11 @@
 One database holds evaluation batches (one condition and configuration over a
 task set), runs (one task attempt), steps (one model request each), answers,
 and scores, and for agent runs (schema 2, D3) programs (exploration cells and
-the final program's fresh rerun), the submission, and its verification. It
+the final program's fresh rerun), the submission, and its verification, and
+(schema 3) one failure-taxonomy label per failed run. It
 quotes prompts, model output, data, and program output, so it lives under the
-ignored ``data/`` tree and is never committed. A schema-1 ledger is upgraded
-in place by adding the schema-2 tables.
+ignored ``data/`` tree and is never committed. Older ledgers are upgraded in
+place by adding the newer tables.
 
 Timestamps are timezone-aware UTC ISO strings. JSON columns hold canonical
 JSON (sorted keys) so equal values compare equal as text.
@@ -24,7 +25,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -151,6 +152,18 @@ CREATE TABLE IF NOT EXISTS verifications (
 );
 """
 
+# Schema 3 (D3): failure-taxonomy labels, one per failed run. Additive.
+_SCHEMA_3 = """
+CREATE TABLE IF NOT EXISTS failure_labels (
+    run_id TEXT PRIMARY KEY REFERENCES runs(run_id),
+    taxonomy TEXT NOT NULL,  -- taxonomy version
+    category TEXT NOT NULL,
+    source TEXT NOT NULL,  -- rule | manual
+    note TEXT NOT NULL,
+    labelled TEXT NOT NULL
+);
+"""
+
 
 def utc_now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
@@ -272,6 +285,15 @@ class VerificationRow(_Row):
     detail: list[str]
 
 
+class FailureLabel(_Row):
+    run_id: str
+    taxonomy: str
+    category: str
+    source: str
+    note: str
+    labelled: str
+
+
 class Score(_Row):
     run_id: str
     profile: str
@@ -341,9 +363,10 @@ class Ledger:
         self._db.execute("PRAGMA journal_mode = WAL")
         self._db.executescript(_SCHEMA)
         row = self._db.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
-        if row is not None and int(row[0]) not in (1, SCHEMA_VERSION):
+        if row is not None and not 1 <= int(row[0]) <= SCHEMA_VERSION:
             raise LedgerError(f"{path}: schema {row[0]}, expected {SCHEMA_VERSION}")
         self._db.executescript(_SCHEMA_2)
+        self._db.executescript(_SCHEMA_3)
         self._db.execute(
             "INSERT OR REPLACE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
         )
@@ -392,7 +415,8 @@ class Ledger:
         with self.transaction():
             for run_id, _ in rows:
                 for table in (
-                    "verifications", "submissions", "programs", "scores", "answers", "steps", "runs"
+                    "failure_labels", "verifications", "submissions", "programs", "scores",
+                    "answers", "steps", "runs",
                 ):  # fmt: skip
                     self._db.execute(f"DELETE FROM {table} WHERE run_id = ?", (run_id,))
         return [key for _, key in rows]
@@ -460,3 +484,12 @@ class Ledger:
     def verification(self, run_id: str) -> VerificationRow | None:
         row = self._db.execute("SELECT * FROM verifications WHERE run_id = ?", (run_id,)).fetchone()
         return None if row is None else _from_row(VerificationRow, row)
+
+    def put_failure_label(self, label: FailureLabel) -> None:
+        self._insert("failure_labels", label, replace=True)
+
+    def failure_label(self, run_id: str) -> FailureLabel | None:
+        row = self._db.execute(
+            "SELECT * FROM failure_labels WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        return None if row is None else _from_row(FailureLabel, row)

@@ -18,7 +18,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from ds_research_agent.ledger import Batch, Ledger, Step
-from eval.kramabench import agent_runs
+from eval.kramabench import agent_runs, failures
 from eval.kramabench.baselines import PROGRAM_CONDITIONS
 from eval.kramabench.scoring import PROFILE
 from eval.kramabench.tasks import Task
@@ -194,6 +194,7 @@ def summarise(
     (s_lo, s_hi), (a_lo, a_hi) = bootstrap([scores, strict], os_, resamples, seed)[:2]
     verified: Any = "not applicable (no program)"
     agent: dict[str, Any] | None = None
+    fails: dict[str, Any] | None = None
     if batch.condition in PROGRAM_CONDITIONS:
         # A missing or unscored run counts as not verified.
         ver = per_task([replace(o, verified=bool(o.verified)) for o in os_], "verified")
@@ -203,7 +204,9 @@ def summarise(
             "ci95": [round(v_lo, 4), round(v_hi, 4)],
             "definition": "strict and reproduced and observed access verified",
         }
-        agent = agent_runs.summary_extra(ledger, [r.run_id for r in ledger.runs(batch.batch_id)])
+        runs = ledger.runs(batch.batch_id)
+        agent = agent_runs.summary_extra(ledger, [r.run_id for r in runs])
+        fails = failures.counts(ledger, runs, tasks)
 
     def group(attr: str) -> dict[str, Any]:
         keys: dict[str, set[str]] = defaultdict(set)
@@ -245,7 +248,7 @@ def summarise(
         "output_tokens": _dist([o.output_tokens for o in os_ if o.output_tokens is not None]),
         "thinking_chars": _dist([o.thinking_chars for o in os_ if o.thinking_chars is not None]),
         "throughput": throughput(os_),
-    } | ({"agent": agent} if agent is not None else {})
+    } | ({"agent": agent, "failures": fails} if agent is not None else {})
 
 
 def compare(

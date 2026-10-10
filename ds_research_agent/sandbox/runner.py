@@ -80,6 +80,11 @@ class SandboxError(RuntimeError):
     """The sandbox itself failed (not the program inside it)."""
 
 
+class SandboxUnavailable(SandboxError):
+    """Docker itself is unreachable. Not a property of the run: callers
+    stop the batch (resumable) instead of recording a failure."""
+
+
 def _validate_mounts(inputs: Sequence[InputMount]) -> list[tuple[Path, str]]:
     seen: set[str] = set()
     out: list[tuple[Path, str]] = []
@@ -135,6 +140,13 @@ class SandboxRunner:
         if r.returncode != 0:
             raise SandboxError(f"docker {args[0]} failed ({r.returncode}): {r.stderr[-2000:]}")
         return r.stdout
+
+    def check_available(self) -> None:
+        """Raise ``SandboxUnavailable`` unless the Docker daemon answers."""
+        try:
+            self._docker("version", "--format", "{{.Server.Version}}", timeout=30)
+        except (SandboxError, OSError, subprocess.TimeoutExpired) as e:
+            raise SandboxUnavailable(f"Docker is unreachable: {e}") from e
 
     def build_image(self) -> ImageInfo:
         self._docker("build", "-q", "-t", self.settings.image, str(IMAGE_DIR), timeout=1800)

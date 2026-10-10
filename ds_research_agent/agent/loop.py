@@ -42,7 +42,13 @@ from ds_research_agent.agent.tools import (
 from ds_research_agent.agent.workspace import Workspace
 from ds_research_agent.config import AgentSettings
 from ds_research_agent.models import ChatMessage, ModelClient, ToolCall
-from ds_research_agent.sandbox import CellResult, SandboxError, SandboxRun, SessionEnd
+from ds_research_agent.sandbox import (
+    CellResult,
+    SandboxError,
+    SandboxRun,
+    SandboxUnavailable,
+    SessionEnd,
+)
 
 StopReason = Literal[
     "submitted", "max_steps", "max_wall", "tool_call_failure", "model_error", "sandbox_error"
@@ -197,6 +203,8 @@ class _Run:
         run: SandboxRun | None = None
         try:
             run = await self.workspace.rerun(sub.program)
+        except SandboxUnavailable:
+            raise
         except SandboxError as e:
             detail.append(f"rerun failed in the sandbox: {e}")
         if run is not None:
@@ -307,6 +315,8 @@ class _Run:
                             assumptions=tuple(args.get("assumptions", ())),
                         )
                         submitted = (sub, i)
+            except SandboxUnavailable:
+                raise  # infrastructure, not the run: the batch stops, resumable
             except SandboxError as e:
                 return self.outcome("sandbox_error", steps, str(e))
             messages += replies

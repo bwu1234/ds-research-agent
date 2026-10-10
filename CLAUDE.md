@@ -14,7 +14,8 @@ profile, fail-closed read audit), its hash-pinned package set, and the
 persistent kernel session exist, and so does the given-files agent loop
 (`ds_research_agent/agent/`), wired into the KramaBench harness as the
 `given_files` condition (`eval/kramabench/agent_runs.py`) and run live on the
-two smoke tasks only. The harness refuses an Ollama version other than
+smoke tasks and the fixed 12-task sample, with failure-taxonomy labels in the
+ledger. The harness refuses an Ollama version other than
 `model.server_version` (0.35.1; 0.40.x crashes on prefix-cache reuse).
 Everything else is planned. Do not
 describe planned modules, tools, commands, evaluations, or integrations as
@@ -72,6 +73,8 @@ uv run python -m eval.kramabench.run --config config/local.yaml report --batch <
 scripts/run_d1.sh config/local.yaml > data/runs/d1.log 2>&1   # all D1 model runs, ~12-14 h
 # D3 given-files agent (needs Docker; builds or reuses the sandbox image); replay needs neither
 uv run python -m eval.kramabench.run --config config/local.yaml run --condition given_files --tasks smoke --think off
+uv run python -m eval.kramabench.run --config config/local.yaml failures --batch <id>   # rule labels, list failed runs
+uv run python -m eval.kramabench.run --config config/local.yaml show --run <run_id>     # one run with its gold answer; local only
 ```
 
 The holdout is sealed: `run --tasks holdout` needs `--unseal-holdout`, which

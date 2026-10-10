@@ -6,6 +6,7 @@ from ds_research_agent.sandbox.runner import (
     SandboxError,
     SandboxRun,
     SandboxRunner,
+    SandboxUnavailable,
 )
 from ds_research_agent.sandbox.session import CellResult, KernelSession, SessionEnd
 
@@ -17,6 +18,7 @@ __all__ = [
     "KernelSession",
     "ObservedRead",
     "SandboxError",
+    "SandboxUnavailable",
     "SandboxRun",
     "SandboxRunner",
     "SessionEnd",

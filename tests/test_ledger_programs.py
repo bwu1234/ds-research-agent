@@ -81,7 +81,7 @@ def test_schema_1_ledger_is_upgraded_in_place(tmp_path: Path) -> None:
     assert ledger.programs(rid) == []
     ledger.close()
     version = sqlite3.connect(path).execute("SELECT value FROM meta").fetchone()[0]
-    assert int(version) == SCHEMA_VERSION == 2
+    assert int(version) == SCHEMA_VERSION == 3
 
 
 def test_unknown_schema_is_refused(tmp_path: Path) -> None:
