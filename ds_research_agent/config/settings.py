@@ -89,6 +89,17 @@ class AgentSettings(_Strict):
     # Repair turns allowed for one step after a rejected tool call (parse
     # error, unknown tool, or schema-invalid arguments). 0 disables repair.
     tool_call_max_repairs: NonNegativeInt
+    # Budgets for one agent run. A step is one accepted (or exhausted) model
+    # turn; its repair requests do not count separately. Reaching a budget
+    # ends the run with that stop reason and no answer.
+    max_steps: PositiveInt
+    max_wall_s: PositiveFloat
+    # Generated tokens (thinking included) per model request (num_predict).
+    max_output_tokens: PositiveInt
+    # Characters of each of stdout, stderr, and traceback in a tool result.
+    max_tool_output_chars: PositiveInt
+    # Consecutive identical errors before the tool result demands a re-plan.
+    replan_after_repeats: PositiveInt
 
 
 class SandboxSettings(_Strict):

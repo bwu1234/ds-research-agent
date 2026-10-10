@@ -14,7 +14,8 @@ fixture index, a tool-call repair policy, a pinned KramaBench fetch script,
 a read-audit spike, and a D1 evaluation harness (local deterministic scorer,
 frozen split, run ledger, no-tools and inlined-files baselines), and a
 sandbox runner and persistent kernel session (restricted container with a
-trusted read audit) exist. There is no agent loop yet.
+trusted read audit) exist, with a given-files agent loop that has been
+tested offline but not yet run with the model.
 
 ## Example task
 
