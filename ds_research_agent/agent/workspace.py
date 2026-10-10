@@ -17,6 +17,7 @@ from ds_research_agent.sandbox import (
     CellResult,
     InputMount,
     KernelSession,
+    SandboxError,
     SandboxRun,
     SandboxRunner,
     SessionEnd,
@@ -50,13 +51,17 @@ class DockerWorkspace:
         return self._last_id
 
     async def execute(self, code: str, timeout_s: int) -> CellResult:
-        session = self._session
-        if session is None:
-            session = await asyncio.to_thread(
-                KernelSession, self._runner, self._inputs, scratch=self._scratch
-            )
-            self._session, self._last_id = session, session.container
-        result = await asyncio.to_thread(session.execute, code, timeout_s)
+        try:
+            session = self._session
+            if session is None:
+                session = await asyncio.to_thread(
+                    KernelSession, self._runner, self._inputs, scratch=self._scratch
+                )
+                self._session, self._last_id = session, session.container
+            result = await asyncio.to_thread(session.execute, code, timeout_s)
+        except SandboxError:
+            await self._check_docker()
+            raise
         if not result.kernel_alive:
             await self._end_session()
         return result
@@ -66,8 +71,17 @@ class DockerWorkspace:
             session, self._session = self._session, None
             self._ends.append(await asyncio.to_thread(session.close))
 
+    async def _check_docker(self) -> None:
+        """Turn a sandbox failure into ``SandboxUnavailable`` when Docker
+        itself is down, so the batch stops rather than scoring the run."""
+        await asyncio.to_thread(self._runner.check_available)
+
     async def rerun(self, program: str) -> SandboxRun:
-        return await asyncio.to_thread(self._runner.run, program, self._inputs)
+        try:
+            return await asyncio.to_thread(self._runner.run, program, self._inputs)
+        except SandboxError:
+            await self._check_docker()
+            raise
 
     async def close(self) -> list[SessionEnd]:
         await self._end_session()

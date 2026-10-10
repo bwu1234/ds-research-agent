@@ -19,7 +19,7 @@ import pytest
 from ds_research_agent.ledger import Ledger
 from ds_research_agent.models import ChatMessage, ChatResult, ToolCall, ToolSpec, Usage
 from ds_research_agent.sandbox import InputMount
-from eval.kramabench import agent_runs, report
+from eval.kramabench import agent_runs, failures, report
 from eval.kramabench.baselines import Harness, ReplayClient, ReplayMismatch, run_batch
 from eval.kramabench.run import new_batch
 from eval.kramabench.scoring import PROFILE
@@ -183,3 +183,33 @@ def test_replay_workspace_refuses_changed_code(tmp_path: Path) -> None:
     ws = agent_runs.ReplayWorkspace(progs)
     with pytest.raises(ReplayMismatch):
         asyncio.run(ws.execute("print(2)", 5))
+
+
+def test_failure_labels_rules_manual_counts_and_render(tmp_path: Path) -> None:
+    h = _harness(tmp_path)
+    keys = h.split.dev[:3]
+    t = [h.tasks[k] for k in keys]
+    answers = {t[0].query: t[0].gold.answer, t[1].query: "wrong", t[2].query: None}
+    batch = _run(h, keys, answers, {})
+    runs = {r.task_key: r for r in h.ledger.runs(batch.batch_id)}
+    assert failures.apply_rules(h.ledger, batch.batch_id) == 1
+    lab = h.ledger.failure_label(runs[keys[2]].run_id)
+    assert lab and (lab.category, lab.source) == ("budget_exhausted", "rule")
+    assert h.ledger.failure_label(runs[keys[1]].run_id) is None  # needs a reader
+    with pytest.raises(ValueError, match="strictly correct"):
+        failures.label(h.ledger, runs[keys[0]], "other", "x")
+    with pytest.raises(ValueError, match="unknown category"):
+        failures.label(h.ledger, runs[keys[1]], "typo", "x")
+    failures.label(h.ledger, runs[keys[1]], "wrong_filter_or_join", "read")
+    # A manual label is never overwritten by a rule.
+    failures.label(h.ledger, runs[keys[2]], "other", "looked closer")
+    failures.apply_rules(h.ledger, batch.batch_id)
+    assert h.ledger.failure_label(runs[keys[2]].run_id).category == "other"  # type: ignore[union-attr]
+
+    out = report.summarise(h.ledger, batch, h.tasks, 200, 0)["failures"]
+    assert out["failed_runs"] == 2 and out["unlabelled"] == 0
+    assert out["counts"] == {"wrong_filter_or_join": 1, "other": 1}
+
+    text = failures.render_run(h.ledger, runs[keys[1]], t[1])
+    assert "gold (evaluator only)" in text and "> submit_answer" in text
+    assert "## verification" in text and "failure label: wrong_filter_or_join" in text

@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09; agent loop and the `given_files` condition done 2026-10-10, smoke tasks only); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, and the 12-task sample done 2026-10-10); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -943,6 +943,84 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     several submissions per run in the ledger); there is no wall-clock budget
     notice. The failure taxonomy, the 12-task sample, and step and output
     caps chosen from it come next.
+- **(e) Failure-analysis tooling and the 12-task sample, done 2026-10-10.**
+  - **Tooling.** Ledger schema 3 adds `failure_labels` (one per failed
+    run: taxonomy version, category, `rule` or `manual`, note); older
+    ledgers upgrade in place. `eval/kramabench/failures.py` holds the fixed
+    taxonomy (`taxonomy-v1`, the seven categories in
+    [data-and-provenance.md](data-and-provenance.md)). `max_steps` and
+    `max_wall` are labelled `budget_exhausted`, and `tool_call_failure`
+    as itself, by rule; every other failed run is read and labelled by
+    hand, and a rule never overwrites a manual label. New commands:
+    `failures --batch` (apply rules, list failed runs), `show --run`
+    (renders one run: the transcript as the model saw it, cells, rerun,
+    verdicts, and the gold answer, so local only), and `label`. Reports of
+    program conditions gain a `failures` block. Failed means not strictly
+    correct; strictly correct runs that fail verification are counted in
+    the `agent` block instead. Labelling guide used: `parse_error`, the
+    file was read wrongly; `wrong_filter_or_join`, wrong rows, columns,
+    base population, join, or aggregation; `formatting`, the right
+    quantity presented wrongly (sign, units, rounding); `other`, anything
+    else, with a note.
+  - **Docker outage handling.** The first attempt crashed when Docker
+    Desktop was restarted mid-run: the harness wrote to the vanished kernel
+    container and died with `BrokenPipeError`. Now a sandbox failure is
+    followed by a `docker version` check. If the daemon is unreachable,
+    `SandboxUnavailable` propagates, the batch stops with exit code 3, and
+    the unfinished run is redone by `--resume`. If Docker is up, the run
+    ends as `sandbox_error` and the batch continues. Tested offline and
+    against a real container removed mid-session.
+  - **Sample run** (`given_files-sample-off-d3e`, thinking off, 12 steps,
+    4,096 output tokens per request, one repeat). Aggregates, with the D1
+    `inline` baseline at thinking off on the same tasks:
+
+    | Condition | Answer score | Strict | Verified | Median wall | Total wall |
+    |---|---|---|---|---|---|
+    | given_files | 0.409 [0.242, 0.576] | 0.333 [0.167, 0.500] | 0.167 | 130 s | 37 min |
+    | inline (D1) | 0.333 [0.167, 0.500] | 0.333 [0.167, 0.500] | n/a | 414 s | 81 min |
+
+    The strict-accuracy tie hides different task sets: each condition gets
+    two tasks right that the other misses. Twelve tasks cannot separate the
+    two; this is a workflow check, not the registered D3 comparison. The
+    verified-success interval is degenerate (both verified runs are in one
+    domain, and the stratified bootstrap with two tasks per domain cannot
+    vary it), so it is not reported as an interval.
+  - **Stops and verification.** 9 of 12 runs submitted, in 5 to 11 model
+    requests (median 6); 3 reached `max_steps`. Of the 9 submissions, 6
+    reproduced and 7 passed observed access. All three reproduction
+    failures are the same agent error: the submitted program calls
+    `json.dumps` without importing `json`, which had been imported in an
+    earlier kernel cell. One of them was strictly correct, so it lost
+    verified success to this alone. Both access failures are wrong claims:
+    one claimed a file its program never read, one claimed 2 files while
+    its program read the 104 files in the labelled folders. No re-plan
+    fired (no error repeated twice in a row).
+  - **Failure taxonomy** (8 failed runs, all labelled): `budget_exhausted`
+    3, `wrong_filter_or_join` 2, `formatting` 2, `other` 1. Both
+    `formatting` cases reported the magnitude of a signed difference, as
+    their stated assumptions say. One `wrong_filter_or_join` computed both
+    readings of an ambiguous denominator and chose the other one; the
+    taxonomy has no interpretation category, so it is labelled with a note.
+    The `other` run scored 0.91 on an approximate answer; its reading
+    reproduces, and the difference from the gold was not diagnosed.
+  - **Budget exhaustion.** The turn budget and the warning notices did not
+    make these three submit. One reran a near-identical cell six times,
+    each printing about 8,000 characters that the 4,000-character tool
+    output cap cut, then on its last two turns ran its final program with
+    `run_python` instead of submitting it. One spent its last turn writing a
+    program that hit the 4,096-token output cap. One is a modelling task
+    that was still building its solution. The two astronomy runs started at
+    up to 8.3k prompt tokens (long file lists) and took 531 and 567 s.
+  - **Operations.** Prompts grow to about 21k tokens in 12 steps; a step is
+    about 1 s of prompt evaluation when the cache is reused plus 22 tokens/s
+    of output. At this rate the 53-task development split would take about
+    2.7 h per repeat. During the first attempt another local client loaded
+    two other models into Ollama, which evicted the 27b runner once (an
+    11.6 s reload and a full re-evaluation of the prompt); no step of the
+    resumed batch reloaded the model. Replay of the batch: 0 differences.
+  - **Not done:** the protocol changes these failures suggest (see the next
+    entry when made), the registered criteria for the paired comparison,
+    and the development split.
 
 ## D4 — End to end with provenance
 

@@ -7,6 +7,10 @@
     uv run python -m eval.kramabench.run --config config/local.yaml report --batch ID
     uv run python -m eval.kramabench.run --config config/local.yaml compare --batch A --batch B
     uv run python -m eval.kramabench.run --config config/local.yaml list
+    uv run python -m eval.kramabench.run --config config/local.yaml failures --batch ID
+    uv run python -m eval.kramabench.run --config config/local.yaml show --run RUN_ID
+    uv run python -m eval.kramabench.run --config config/local.yaml label --run RUN_ID \\
+        --category CATEGORY --note TEXT
 
 Conditions: ``no_tools`` and ``inline`` (D1 baselines, one request per
 task) and ``given_files`` (the D3 agent; needs Docker, and builds or reuses
@@ -16,7 +20,10 @@ sets: ``smoke`` (the two ``-tiny`` tasks), ``sample`` (the fixed D3 sample),
 ``dev``; ``holdout`` is refused unless ``--unseal-holdout`` is given, which is
 for D5 only. ``replay`` re-runs a batch through its recorded responses with
 no model or network and fails unless every request hash, answer, and score
-matches. Output is aggregates only; per-task answers stay in the ledger.
+matches. Output is aggregates only; per-task answers stay in the ledger,
+except ``show``, which renders one run with its gold answer for failure
+analysis (local only, like the ledger). ``failures`` applies the rule labels
+and lists each failed run's taxonomy label; ``label`` sets one by hand.
 """
 
 from __future__ import annotations
@@ -36,8 +43,8 @@ from ds_research_agent.agent import DockerWorkspace
 from ds_research_agent.config import ModelSettings, Settings, load_settings
 from ds_research_agent.ledger import Batch, Ledger, canonical, utc_now
 from ds_research_agent.models.ollama_client import OllamaModelClient
-from ds_research_agent.sandbox import InputMount, SandboxRunner
-from eval.kramabench import agent_runs, report
+from ds_research_agent.sandbox import InputMount, SandboxRunner, SandboxUnavailable
+from eval.kramabench import agent_runs, failures, report
 from eval.kramabench.baselines import (
     CONDITIONS,
     PROGRAM_CONDITIONS,
@@ -230,7 +237,15 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
     h = Harness(settings, model, ledger, split, tasks)
     client = OllamaModelClient(model)
     agent_task = docker_agent_task(settings) if agentic else None
-    asyncio.run(run_batch(h, batch, lambda _t, _r: client, _progress, agent_task))
+    try:
+        asyncio.run(run_batch(h, batch, lambda _t, _r: client, _progress, agent_task))
+    except SandboxUnavailable as e:
+        print(
+            f"error: {e}\nThe current run is left unfinished; once Docker is back, rerun "
+            f"with --batch {batch.batch_id} --resume to redo it and continue.",
+            file=sys.stderr,
+        )
+        return 3
     _print_report(ledger, batch, tasks, settings)
     return 0
 
@@ -366,6 +381,49 @@ def cmd_list(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def _run(ledger: Ledger, run_id: str) -> Any:
+    batch_id = run_id.split("/", 1)[0]
+    for r in ledger.runs(batch_id):
+        if r.run_id == run_id:
+            return r
+    raise SystemExit(f"no run {run_id!r}")
+
+
+def cmd_show(args: argparse.Namespace, settings: Settings) -> int:
+    _, tasks = frozen_split(settings)
+    ledger = Ledger(settings.eval.ledger_path)
+    r = _run(ledger, args.run)
+    print(failures.render_run(ledger, r, tasks[r.task_key], args.limit))
+    return 0
+
+
+def cmd_label(args: argparse.Namespace, settings: Settings) -> int:
+    ledger = Ledger(settings.eval.ledger_path)
+    try:
+        lab = failures.label(ledger, _run(ledger, args.run), args.category, args.note)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
+    print(f"{lab.run_id}: {lab.category}")
+    return 0
+
+
+def cmd_failures(args: argparse.Namespace, settings: Settings) -> int:
+    _, tasks = frozen_split(settings)
+    ledger = Ledger(settings.eval.ledger_path)
+    for bid in args.batch:
+        n = failures.apply_rules(ledger, bid)
+        runs = ledger.runs(bid)
+        print(f"{bid}: {n} rule labels applied")
+        for r in runs:
+            if failures.failed(ledger, r):
+                lab = ledger.failure_label(r.run_id)
+                what = f"{lab.category} ({lab.source})" if lab else "UNLABELLED"
+                print(f"  {r.run_id}\t{r.stop_reason}\t{what}")
+        print(json.dumps(failures.counts(ledger, runs, tasks), indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m eval.kramabench.run")
     ap.add_argument("--config", type=Path, required=True)
@@ -388,6 +446,15 @@ def main(argv: list[str] | None = None) -> int:
         p = sub.add_parser(name)
         p.add_argument("--batch", action="append", required=True)
     sub.add_parser("list")
+    f = sub.add_parser("failures")
+    f.add_argument("--batch", action="append", required=True)
+    sh = sub.add_parser("show")
+    sh.add_argument("--run", required=True)
+    sh.add_argument("--limit", type=int, default=3000, help="characters per message")
+    lb = sub.add_parser("label")
+    lb.add_argument("--run", required=True)
+    lb.add_argument("--category", choices=failures.CATEGORIES, required=True)
+    lb.add_argument("--note", required=True)
     args = ap.parse_args(argv)
     settings = load_settings(args.config)
     handlers = {
@@ -398,6 +465,9 @@ def main(argv: list[str] | None = None) -> int:
         "compare": cmd_compare,
         "choose-think": cmd_choose_think,
         "list": cmd_list,
+        "failures": cmd_failures,
+        "show": cmd_show,
+        "label": cmd_label,
     }
     try:
         return handlers[args.command](args, settings)

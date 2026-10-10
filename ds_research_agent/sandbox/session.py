@@ -153,9 +153,12 @@ class KernelSession:
             raise SandboxError("session is closed")
         timeout = timeout_s or self._s.cell_timeout_s
         assert self._proc.stdin is not None
-        self._proc.stdin.write(json.dumps({"op": "exec", "code": code, "timeout_s": timeout}))
-        self._proc.stdin.write("\n")
-        self._proc.stdin.flush()
+        request = json.dumps({"op": "exec", "code": code, "timeout_s": timeout}) + "\n"
+        try:
+            self._proc.stdin.write(request)
+            self._proc.stdin.flush()
+        except OSError as e:  # BrokenPipeError: the container is gone
+            raise SandboxError(f"{self.container}: container is gone: {e}") from e
         msg = self._next(timeout + self._s.interrupt_grace_s + self._s.host_grace_s)
         self._cells = int(msg["cell"])
         audit = observe(
@@ -184,7 +187,7 @@ class KernelSession:
             self._proc.stdin.close()
             msg = self._next(60 + self._s.host_grace_s)
             ended = msg.get("type") == "end"
-        except SandboxError, BrokenPipeError:
+        except SandboxError, OSError:
             msg, ended = {}, False
         try:
             self._proc.wait(timeout=60)

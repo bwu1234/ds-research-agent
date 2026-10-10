@@ -10,12 +10,13 @@ access.
 
 from __future__ import annotations
 
+import subprocess
 from typing import Any
 
 import pytest
 
 from ds_research_agent.agent import SYSTEM_PROMPT, DockerWorkspace, Outcome, run_agent, user_prompt
-from ds_research_agent.sandbox import InputMount, SandboxRunner
+from ds_research_agent.sandbox import InputMount, SandboxError, SandboxRunner, SandboxUnavailable
 from tests.sandbox.test_kernel import INPUTS, A
 from tests.test_agent_loop import SETTINGS, Rec, Script, py, reply
 from tests.test_agent_loop import submit as _submit
@@ -114,3 +115,23 @@ async def test_dead_kernel_restarts_with_fresh_state(runner: SandboxRunner) -> N
         reply(submit(5, program=program("len(df)"))),
     )
     assert out.stop_reason == "submitted" and len(out.sessions) == 2
+
+
+async def test_vanished_container_is_a_sandbox_error_while_docker_is_up(
+    runner: SandboxRunner,
+) -> None:
+    ws = DockerWorkspace(runner, INPUTS)
+    await ws.execute("x = 1", 5)
+    assert ws.session_id is not None
+    subprocess.run([runner.settings.docker, "rm", "-f", ws.session_id], capture_output=True)
+    with pytest.raises(SandboxError) as e:
+        await ws.execute("x", 5)
+    assert not isinstance(e.value, SandboxUnavailable)
+    await ws.close()
+
+
+def test_unreachable_docker_is_reported(runner: SandboxRunner) -> None:
+    gone = SandboxRunner(runner.settings.model_copy(update={"docker": "/nonexistent/docker"}))
+    with pytest.raises(SandboxUnavailable):
+        gone.check_available()
+    runner.check_available()

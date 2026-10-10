@@ -173,6 +173,9 @@ process, can support a provenance claim; state carried between cells cannot.
 Failure categories come from a fixed taxonomy: discovery miss, parse error,
 wrong filter or join, formatting, budget exhausted, tool-call failure, other.
 Change the taxonomy only between protocol versions, never during holdout.
+Labels live in the run ledger (`failure_labels`, `taxonomy-v1`); the two
+categories a stop reason decides are applied by rule, the rest by reading
+the run.
 
 ## Identity and the index
 
