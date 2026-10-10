@@ -166,13 +166,10 @@ class SandboxRunner:
         scratch.chmod(0o777)
         return scratch
 
-    def run(
-        self,
-        program: str,
-        inputs: Sequence[InputMount],
-        *,
-        scratch: Path | None = None,
-    ) -> SandboxRun:
+    def _prepare(
+        self, inputs: Sequence[InputMount], scratch: Path | None, program: str = ""
+    ) -> tuple[list[tuple[Path, str]], Path, Path]:
+        """Validate mounts and make the scratch and per-call directories."""
         s = self.settings
         mounts = _validate_mounts(inputs)
         if scratch is None:
@@ -188,11 +185,17 @@ class SandboxRunner:
         (call / "program").chmod(0o755)
         (call / "out").mkdir(mode=0o777)
         (call / "out").chmod(0o777)
+        return mounts, scratch, call
 
-        name = f"dsra-sbx-{uuid.uuid4().hex[:12]}"
-        image_id = self._docker("image", "inspect", "--format", "{{.Id}}", s.image).strip()
+    def _image_id(self) -> str:
+        return self._docker("image", "inspect", "--format", "{{.Id}}", self.settings.image).strip()
+
+    def _container_args(
+        self, name: str, call: Path, scratch: Path, mounts: list[tuple[Path, str]]
+    ) -> list[str]:
+        s = self.settings
         cmd = [
-            s.docker, "run", "--rm", "--name", name,
+            "--rm", "--name", name,
             "--network", "none",
             "--read-only",
             "--tmpfs", f"/tmp:rw,size={s.tmp_mb}m",
@@ -202,6 +205,9 @@ class SandboxRunner:
             # strace (root) needs this to resolve the uid-1000 tracee's
             # /proc/<pid>/fd; without it -y leaves returned fds undecorated.
             "--cap-add", "DAC_READ_SEARCH",
+            # Lets the root wrapper and bridge signal the uid-1000 processes
+            # (interrupt a cell, kill leftovers); the program has no caps.
+            "--cap-add", "KILL",
             "--security-opt", "no-new-privileges",
             "--security-opt", f"seccomp={SECCOMP_PROFILE}",
             "--ipc", "none",
@@ -214,7 +220,28 @@ class SandboxRunner:
         ]  # fmt: skip
         for host, cp in mounts:
             cmd += ["--mount", f"type=bind,src={host},dst={cp},readonly"]
-        cmd += [image_id, str(s.wall_timeout_s), str(s.cpu_time_s), str(s.max_file_bytes)]
+        return cmd
+
+    def run(
+        self,
+        program: str,
+        inputs: Sequence[InputMount],
+        *,
+        scratch: Path | None = None,
+    ) -> SandboxRun:
+        """Run one program in a fresh container (also the verifier's rerun)."""
+        s = self.settings
+        mounts, scratch, call = self._prepare(inputs, scratch, program)
+        name = f"dsra-sbx-{uuid.uuid4().hex[:12]}"
+        image_id = self._image_id()
+        cmd = [s.docker, "run", *self._container_args(name, call, scratch, mounts)]
+        cmd += [
+            image_id,
+            "program",
+            str(s.wall_timeout_s),
+            str(s.cpu_time_s),
+            str(s.max_file_bytes),
+        ]
 
         t0 = time.monotonic()
         try:

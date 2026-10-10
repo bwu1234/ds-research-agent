@@ -111,6 +111,11 @@ class SandboxSettings(_Strict):
     tmp_mb: PositiveInt
     # Characters of program stdout and stderr returned to the caller each.
     max_output_chars: PositiveInt
+    # Persistent kernel: default per-cell limit, the whole session's wall
+    # clock, and how long an interrupted cell gets before the kernel is killed.
+    cell_timeout_s: PositiveInt
+    session_timeout_s: PositiveInt
+    interrupt_grace_s: PositiveInt
 
 
 class KramaBenchSettings(_Strict):

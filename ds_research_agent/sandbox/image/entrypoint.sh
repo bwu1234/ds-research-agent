@@ -1,9 +1,17 @@
 #!/bin/sh
-# Trusted wrapper; runs as root and is PID 1. The program runs as uid 1000
-# under strace with its stdout/stderr redirected to /out. Only this wrapper
-# writes the container's stdout, which carries the trace to the runner.
-#   entrypoint.sh <wall_s> <cpu_s> <max_file_bytes>
+# Trusted entrypoint; runs as root and is PID 1.
+#   entrypoint.sh program <wall_s> <cpu_s> <max_file_bytes>
+#   entrypoint.sh kernel <session_wall_s> <cpu_s> <max_file_bytes> <max_output_chars> <interrupt_grace_s>
+# Program mode: the program runs as uid 1000 under strace with its
+# stdout/stderr redirected to /out. Only this wrapper writes the container's
+# stdout, which carries the trace to the runner. Kernel mode hands PID 1 to
+# the bridge, which keeps the same rule.
 set -u
+mode="$1"; shift
+if [ "$mode" = kernel ]; then
+  exec python3 -I /opt/sandbox/bridge.py "$@"
+fi
+[ "$mode" = program ] || { echo "unknown mode: $mode" >&2; exit 2; }
 wall="$1"; cpu="$2"; fsize="$3"
 mkdir -p /audit && chmod 0700 /audit
 start=$(date +%s%N)

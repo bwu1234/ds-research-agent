@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox runner done 2026-10-09); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -743,6 +743,49 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     missing packages. The 18 txt files, the one `text` file, and the `py`
     file are text that is not a whitespace table. All six domain runs had a
     complete audit, and every loaded file was observed.
+- **(c) Persistent kernel, done 2026-10-09** (`sandbox/session.py`,
+  `sandbox/image/bridge.py`, `sandbox/image/kernel.py`). `KernelSession`
+  keeps one container per agent run, with the same isolation as program
+  runs plus `--init` to reap orphans. The channel is the container's
+  stdin and stdout (`docker run -i`): with `--network none`, ZMQ over TCP is
+  out, and a Unix socket on a bind mount does not cross Docker Desktop's VM
+  (measured: the host connect was refused). Chosen over ipykernel with
+  `jupyter_client`, which would add pyzmq, tornado, and IPython to the image
+  and more processes under strace, for text-only output.
+  - **Trust split.** A root bridge is the only writer of the container's
+    stdout. It relays one JSON request per line to the kernel (uid 1000,
+    under strace for its whole life) and returns each cell's result with the
+    trace lines written during the cell, its wall time, and its stdout and
+    stderr. Those are captured at the fd level into per-cell files, so child
+    process output is included. The kernel's own status line is untrusted. A
+    reply for the wrong cell is a `protocol_error`, and the kernel is killed;
+    a test forges a reply to check this.
+  - **Cells** run in a fresh `__main__` module (so cell-defined functions
+    pickle). A trailing expression's repr is printed. Tracebacks start at the
+    cell's first frame. `SystemExit` does not end the kernel. Between cells
+    fds 0 to 2 are `/dev/null`, so a cell cannot read requests from stdin.
+  - **Limits.** Per-cell `cell_timeout_s` sends SIGINT, which gives
+    `timeout_interrupted` with state kept. If the cell does not stop within
+    `interrupt_grace_s`, every uid-1000 process is killed (`timeout`, kernel
+    dead). Crashes, OOM, and the CPU limit give `dead`. `session_timeout_s`
+    caps the whole session. The bridge kills tracees, not strace, so the
+    session audit stays complete in all of these cases. Root signalling uid
+    1000 needs `CAP_KILL`, now granted to the container (the program still
+    has none). Without it, program mode's cleanup `kill -9 -1` had been
+    failing silently. That was harmless, because strace exits only after its
+    tracees and a timeout already marks the audit incomplete.
+  - **Audit attribution.** strace writes each trace line as it happens, so
+    per-cell slices attribute reads to the cell during which they happened. A
+    background thread's or process's read can land in a later slice. The
+    session audit, from the merged trace, is the record; the verifier reruns
+    the final program in a fresh container with `SandboxRunner.run` and never
+    reuses a session.
+  - Mapping to Program records: one cell record per `execute` (code, status,
+    outputs, timing, observed reads). The ledger tables arrive with the loop
+    in step (d).
+  - `tests/sandbox/test_kernel.py` (marker `docker`, 14 tests). Measured
+    (Docker Desktop, 5 sessions): start 0.16 s median, a trivial cell's round
+    trip 1 ms median (3 ms max), close 0.14 s.
 
 ## D4 — End to end with provenance
 
@@ -902,6 +945,8 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
   container, with a seccomp profile derived from Docker's default that
   refuses `clone` with `CLONE_UNTRACED`, and an audit that fails closed (D3,
   2026-10-09; see D3 progress).
+- Persistent kernel: a minimal REPL behind a trusted bridge over the
+  container's stdio, not ipykernel (D3, 2026-10-09; see D3 progress).
 
 
 - The main model is `qwen3.8:27b-mlx` through Ollama.
@@ -933,8 +978,6 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
 
 - Group-card granularity: by directory, by shared schema, or both. Decide in
   D2 from development retrieval results.
-- Persistent kernel implementation (for example a Jupyter kernel in the
-  sandbox) and how its cell history maps to Program records. Decide in D3.
 - Which candidate components from the literature survey to build, in what
   order, and whether each needs its own ablation. Statistical checks should be
   deterministic and outside the model unless a local 27B run shows it can do
