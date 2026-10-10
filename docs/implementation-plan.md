@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, and the protocol fixes from it done 2026-10-10); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -1088,8 +1088,102 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     model projects about 5.6 h for one repeat of the development split,
     against about 2.7 h before, mostly from runs that now continue past
     12 steps. Replay of the batch: 0 differences.
-  - **Not done:** the registered criteria for the paired comparison, and
-    the development split.
+  - **Not done:** the registered criteria for the paired comparison
+    (now (g)), and the development split.
+- **(g) Criteria for the paired development comparison, registered
+  2026-10-10**, before any development-split agent run. Disclosure: drafted on
+  2026-10-10 after seeing the 12-task sample results (`-d3e`, `-d3f`) and
+  the D1 baselines; no development-split result exists for either agent
+  condition. The sample's 12 tasks are inside the development split and
+  were used for tuning, so every result is also reported on the 41 other
+  tasks as a sensitivity check.
+  - **Comparisons.** On the 53 development tasks, thinking off unless the
+    `answer_type` hidden, `local-deterministic-v1`:
+    - *P1, execution:* `given_files` minus `inline`. `inline` is the D1
+      batch `d1-dev-inline-off`, reused rather than rerun (same model,
+      Ollama version, scorer, and prompt).
+    - *P2, specialization:* `given_files` minus the minimal general
+      code-execution baseline (below).
+  - **Frozen before the runs:** repository commit (a clean tree, unlike
+    D1), configuration, the prefix hash of each agent condition, the
+    comparator definition, and this entry. A change after any
+    development-split run starts makes a new, labelled comparison.
+  - **Budgets, identical for both agent conditions:** 20 steps, 8,192
+    output tokens per request, 4,000 characters per tool output, 300 s per
+    cell, and **30 min per task** (`agent.max_wall_s` 3600 to 1800). Hitting
+    a budget scores 0. `inline` keeps its D1 budgets.
+  - **Practical limits** (absolute, from the intended use: one researcher
+    with one Mac, a development pass run overnight): median task time
+    5 min or less, p90 20 min or less, budget stops (`max_steps`,
+    `max_wall`) on 15% of tasks or fewer, and one development pass 8 h or
+    less. A condition that misses a limit is reported as impractical at
+    these budgets, whatever its accuracy.
+  - **Repeats.** One development pass per agent condition at temperature 0
+    and seed 0. At temperature 0, a repeat measures only run-to-run
+    nondeterminism (cache state, kernel timing), not sampling variance. To
+    measure it, each agent condition reruns the 12 sample tasks once more.
+    If more than 2 of the 12 change strict outcome in either condition, a
+    second full pass of both agent conditions follows (declared extra
+    budget, about 11 h), and per-task scores average the two passes.
+    Repeats do not narrow the task-sampling uncertainty below.
+  - **Minimum worthwhile gain: +10 percentage points of strict accuracy**
+    (about 5 of 53 tasks). Primary metric: all-task strict accuracy.
+    Secondary: answer score, verified success (P2 only; `inline` has no
+    program), and runtime. Paired differences D use 95% percentile
+    bootstrap intervals over parent tasks within domain, as in D1.
+  - **Decision rules**, applied to D for each comparison:
+    - *Worthwhile gain:* D at least +10 points and interval lower bound
+      above 0.
+    - *Gain ruled out:* interval upper bound below +10 points.
+    - *Inconclusive:* otherwise.
+
+    P1: a worthwhile gain means *continue*: execution pays at this budget.
+    Gain ruled out means *stop or simplify*: diagnose with the failure
+    taxonomy before D2/D4. Verified success may still justify execution
+    for audit, but not as an accuracy claim. P2: a worthwhile gain means
+    *continue* with the custom loop. Gain ruled out means *simplify*:
+    keep only the specializations whose failure counts show an effect.
+    The exception is a custom-loop verified-success gain of at least
+    +10 points with interval lower bound above 0, which is recorded as
+    audit value. *Inconclusive* is recorded as inconclusive. D4 then
+    proceeds with the existing loop, and no specialization benefit is
+    claimed.
+  - **Runtime trade-off.** A worthwhile gain counts only if the candidate
+    meets the practical limits. When accuracy is not worthwhile-better
+    (gain ruled out or inconclusive) and the candidate's median task time
+    is 1.5 times the comparator's or more, the decision moves to
+    *simplify*.
+  - **Power, stated in advance.** D1's paired strict-accuracy interval on
+    these 53 tasks was about ±11 points wide. A true +10-point gain would
+    therefore most likely come out *inconclusive*. Only an observed
+    difference of about +12 points or more clears zero. More repeats
+    cannot fix this; only more tasks can, and the holdout stays sealed
+    until D5.
+  - **Operator effort**, per condition: one-time setup minutes,
+    per-batch intervention minutes (restarts, resumes), and review
+    minutes (failure labelling), logged in the results entry. Manual
+    repairs never change a score.
+  - **Minimal comparator, decided.** First a bounded spike (about 2 to
+    3 h): can smolagents `CodeAgent`, pinned, run its code in this
+    sandbox's audited kernel and send its model calls through the
+    recording client, so that its runs replay? Its documentation lists only
+    built-in executors, so this is unverified. If it can, the comparator
+    is `CodeAgent` with its own prompt, with `submit_answer`'s contract as
+    its final answer, and the same budgets, mounts, and verifier. If not,
+    it is a thin local runner on the same kernel and contract, with a
+    generic analysis prompt and error feedback, and without the
+    specialized guidance, re-plan, no-progress nudge, budget notices, or
+    submit check. That runner is labelled a proxy. Either way, the
+    definition is frozen (prompt, tools, retry policy) in its own entry
+    before the P2 runs.
+  - **Thinking level, decided: frozen at `off`.** No recheck in the loop.
+    Limitation: the level was chosen on single-shot `inline` runs (D1),
+    where `low` to `xhigh` were slower and no better.
+  - **Estimated compute:** `given_files` pass about 5.6 h (less with the
+    30 min cap), minimal baseline of similar order, determinism probes
+    about 2.5 h. About 14 h in total, plus about 11 h if the second pass is
+    triggered. All local,
+    no paid calls.
 
 ## D4 — End to end with provenance
 
