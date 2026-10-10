@@ -133,6 +133,11 @@ REPLAN = (
     "The same error has now occurred {n} times in a row. Before running more code, "
     "reply with a short plan for a different approach."
 )
+NO_PROGRESS = (
+    "This cell is nearly identical to the {n} before it, and repeating it is not "
+    "getting you closer to an answer. Change your approach, or if you have an "
+    "answer, call submit_answer."
+)
 NO_TOOL_CALL = "No tool was called. Continue with run_python, or call submit_answer to finish."
 CUT_OFF = (
     "Your reply was cut off at the output length limit and nothing was run. "

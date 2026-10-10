@@ -103,6 +103,11 @@ class AgentSettings(_Strict):
     max_tool_output_chars: PositiveInt
     # Consecutive identical errors before the tool result demands a re-plan.
     replan_after_repeats: PositiveInt
+    # Successful cells in a row whose code is at least ``no_progress_similarity``
+    # similar (difflib ratio) to the cell before, before the tool result asks
+    # for a change of approach. 0 disables.
+    no_progress_after_repeats: NonNegativeInt
+    no_progress_similarity: float = Field(ge=0, le=1)
     # From this many steps left, each step's last message carries a fixed
     # notice to commit and submit (the last step: submit now). 0 disables.
     budget_warning_steps: NonNegativeInt

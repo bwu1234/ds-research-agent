@@ -46,6 +46,8 @@ agent:
   max_output_tokens: 8192
   max_tool_output_chars: 4000
   replan_after_repeats: 2
+  no_progress_after_repeats: 2   # 3 near-identical successful cells in a row
+  no_progress_similarity: 0.95
   budget_warning_steps: 2
   submit_checks: 2
   server_retries: 2

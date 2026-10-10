@@ -1071,9 +1071,19 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     2, `formatting` 2, `budget_exhausted` 1, `other` 1. The one budget
     stop is the modelling task: from about step 14 it re-sent a nearly
     identical 8 KB cell each turn (successful cells, so the repeated-error
-    re-plan never fired) until the 20-step limit, taking 43 min, a third of
-    the batch's wall time. A no-progress check on repeated successful
-    cells is a candidate, not implemented.
+    re-plan never fired) until the 20-step limit, taking 43 min, more than
+    half the batch's wall time.
+  - **No-progress nudge, added after the rerun.** A successful cell whose
+    code is at least `agent.no_progress_similarity` (0.95, difflib ratio)
+    similar to the cell before, for `agent.no_progress_after_repeats` (2)
+    such cells in a row, gets a fixed note asking for a change of approach
+    or a submission; it is recorded as `replan_requested`, like the
+    repeated-error re-plan. Thresholds set from both sample batches: among
+    all their consecutive cell pairs, only the stuck run has two in a row
+    at 0.95 or more, so on recorded cells it fires there alone, from step
+    15. Whether the model then changes course is not yet measured; the
+    tool-result text is not part of the cached prefix, but `-d3f` no
+    longer replays for that run.
   - **Operations.** 11 of 12 runs within 15 requests; the report's step
     model projects about 5.6 h for one repeat of the development split,
     against about 2.7 h before, mostly from runs that now continue past

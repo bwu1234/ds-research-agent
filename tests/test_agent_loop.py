@@ -53,6 +53,8 @@ SETTINGS = AgentSettings(
     max_output_tokens=4096,
     max_tool_output_chars=50,
     replan_after_repeats=2,
+    no_progress_after_repeats=0,
+    no_progress_similarity=0.95,
     budget_warning_steps=0,
     submit_checks=0,
     server_retries=1,
@@ -393,6 +395,22 @@ async def test_repeated_error_demands_a_replan() -> None:
     assert "occurred 2 times in a row" in last_tool_text(client, 2)
     assert "Before running more code" not in last_tool_text(client, 3)
     assert [p.replan_requested for p in rec.programs if p.kind == "cell"] == [False, True, False]
+
+
+async def test_repeated_near_identical_cells_are_nudged() -> None:
+    nudged = SETTINGS.model_copy(update={"no_progress_after_repeats": 2, "max_steps": 8})
+    base = "df = load()\n" + "x = 1\n" * 40
+    codes = [base, base + "y = 2\n", base + "y = 3\n", "other()", base, base]
+    client = Script(*[reply(py(c)) for c in codes], reply(submit()))
+    ws = FakeWorkspace([cell(), cell(), cell(), cell(), cell(), cell("error", tb="E: x")])
+    _, rec = await go(client, ws, settings=nudged)
+    texts = [last_tool_text(client, i) for i in range(1, 7)]
+    assert "nearly identical to the 2 before it" in texts[2]
+    assert not any("nearly identical" in t for t in texts[:2] + texts[3:])
+    # A different cell resets the count, and an error is the re-plan rule's.
+    assert [p.replan_requested for p in rec.programs if p.kind == "cell"] == [
+        False, False, True, False, False, False,
+    ]  # fmt: skip
 
 
 async def test_dead_kernel_is_reported() -> None:

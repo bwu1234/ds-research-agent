@@ -20,6 +20,7 @@ its client); programs, the submission, and the verification go to the
 from __future__ import annotations
 
 import asyncio
+import difflib
 import time
 from collections.abc import Callable, Sequence
 from typing import Any, Literal, Protocol
@@ -39,6 +40,7 @@ from ds_research_agent.agent.tools import (
     CUT_OFF,
     KERNEL_RESTARTED,
     LAST_TURN,
+    NO_PROGRESS,
     NO_TOOL_CALL,
     REPLAN,
     SUBMIT_FAILED,
@@ -77,6 +79,8 @@ class ProgramEvent(_Frozen):
     code: str
     cell: CellResult | None = None
     run: SandboxRun | None = None
+    # The tool result asked for a change of approach: after a repeated error,
+    # or after repeated near-identical successful cells (no progress).
     replan_requested: bool = False
 
 
@@ -194,6 +198,8 @@ class _Run:
         self.last_error: str | None = None
         self.repeats = 0
         self.checks = 0
+        self.last_code: str | None = None
+        self.same_code = 0
 
     def left(self) -> float:
         return self.s.max_wall_s - (self.clock() - self.start)
@@ -209,11 +215,15 @@ class _Run:
             self.repeats = 1 if sig is not None else 0
         self.last_error = sig
         replan = sig is not None and self.repeats >= self.s.replan_after_repeats
+        stuck = self.no_progress(code, cell)
         content = render_cell(cell, self.s.max_tool_output_chars)
         if not cell.kernel_alive:
             content += "\n" + KERNEL_RESTARTED.format(why=cell.status)
         if replan:
             content += "\n" + REPLAN.format(n=self.repeats)
+        elif stuck:
+            content += "\n" + NO_PROGRESS.format(n=self.same_code)
+        replan = replan or stuck
         self.recorder.program(
             ProgramEvent(
                 seq=self.seq,
@@ -228,6 +238,20 @@ class _Run:
         )
         self.seq += 1
         return _tool("run_python", content)
+
+    def no_progress(self, code: str, cell: CellResult) -> bool:
+        """Count successful cells nearly identical to the one before; True from
+        ``no_progress_after_repeats`` such repeats in a row. Errors are the
+        re-plan rule's, so an error resets the count."""
+        prev, self.last_code = self.last_code, code
+        similar = (
+            cell.status == "ok"
+            and prev is not None
+            and difflib.SequenceMatcher(None, prev, code).ratio() >= self.s.no_progress_similarity
+        )
+        self.same_code = self.same_code + 1 if similar else 0
+        n = self.s.no_progress_after_repeats
+        return n > 0 and self.same_code >= n
 
     async def rerun(self, program: str) -> tuple[SandboxRun | None, str | None]:
         try:
