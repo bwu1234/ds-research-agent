@@ -236,7 +236,8 @@ class ReplayWorkspace:
 
     def __init__(self, programs: Sequence[Program]) -> None:
         self._cells = [p for p in programs if p.kind == "cell"]
-        self._reruns = [p for p in programs if p.kind == "final_rerun"]
+        # Submit checks and the final rerun are workspace reruns, in seq order.
+        self._reruns = [p for p in programs if p.kind in ("submit_check", "final_rerun")]
         self._ends = [
             SessionEnd.model_validate(p.record) for p in programs if p.kind == "session_end"
         ]
@@ -331,12 +332,13 @@ async def run_agent_task(
 
 def summary_extra(ledger: Ledger, run_ids: Sequence[str]) -> dict[str, Any]:
     """Agent-run counts for reports: steps, cells, and verification outcomes."""
-    steps, cells, replans, submitted, reproduced, access = [], [], 0, 0, 0, 0
+    steps, cells, replans, checks, submitted, reproduced, access = [], [], 0, 0, 0, 0, 0
     for rid in run_ids:
         progs = ledger.programs(rid)
         steps.append(len(ledger.steps(rid)))
         cells.append(sum(p.kind == "cell" for p in progs))
         replans += sum(p.replan_requested for p in progs)
+        checks += sum(p.kind == "submit_check" for p in progs)
         v = ledger.verification(rid)
         submitted += ledger.submission(rid) is not None
         reproduced += bool(v and v.reproduced)
@@ -345,6 +347,7 @@ def summary_extra(ledger: Ledger, run_ids: Sequence[str]) -> dict[str, Any]:
         "model_requests_per_run": steps,
         "cells_per_run": cells,
         "replans_requested": replans,
+        "submissions_returned_for_fix": checks,
         "submitted": submitted,
         "reproduced": reproduced,
         "access_verified": access,

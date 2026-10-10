@@ -66,8 +66,9 @@ def _harness(tmp_path: Path) -> Harness:
     return Harness(s, s.model, Ledger(s.eval.ledger_path), split, tasks)
 
 
-def _workspace_for(reads: dict[str, bool]):  # type: ignore[no-untyped-def]
-    """Reruns print the submitted answer; ``reads[key]`` says whether they read the files."""
+def _workspace_for(reads: dict[str, bool], crash_first: Sequence[str] = ()):  # type: ignore[no-untyped-def]
+    """Reruns print the submitted answer; ``reads[key]`` says whether they read the
+    files. For keys in ``crash_first`` the first rerun crashes (a submit check)."""
     current: dict[str, Any] = {}
 
     def make(t: Task, _r: int, mounts: Sequence[InputMount]) -> FakeWorkspace:
@@ -75,7 +76,11 @@ def _workspace_for(reads: dict[str, bool]):  # type: ignore[no-untyped-def]
         ws = FakeWorkspace(final=rerun("", reads=paths))
         current[t.key] = ws
 
+        crashes = [t.key in crash_first]
+
         async def rerun_prints(program: str) -> Any:  # echo the program's literal
+            if crashes.pop() if crashes else False:
+                return rerun("", exit_code=1, stderr="NameError: name 'json' is not defined")
             text = json.loads(program.removeprefix("print(").removesuffix(")"))
             return rerun(text, reads=paths)
 
@@ -85,14 +90,20 @@ def _workspace_for(reads: dict[str, bool]):  # type: ignore[no-untyped-def]
     return make
 
 
-def _run(h: Harness, keys: tuple[str, ...], answers: dict[str, Any], reads: dict[str, bool]):  # type: ignore[no-untyped-def]
+def _run(  # type: ignore[no-untyped-def]
+    h: Harness,
+    keys: tuple[str, ...],
+    answers: dict[str, Any],
+    reads: dict[str, bool],
+    crash_first: Sequence[str] = (),
+):
     batch = new_batch(
         h.settings, h.model, h.split, condition="given_files", task_set="dev", keys=keys,
         repeats=1, batch_id="agent-test",
     )  # fmt: skip
     h.ledger.add_batch(batch)
     client = AgentScript(answers)
-    ws_for = _workspace_for(reads)
+    ws_for = _workspace_for(reads, crash_first)
 
     async def task(hh: Harness, b: Any, t: Task, r: int, c: Any) -> Any:
         return await agent_runs.run_agent_task(hh, b, t, r, c, ws_for, "sha256:img")
@@ -110,9 +121,9 @@ def test_given_files_runs_score_verify_report_and_replay(tmp_path: Path) -> None
         t[1].query: "wrong",  # wrong: reproduces, not strict
         t[2].query: t[2].gold.answer,  # right, but the rerun reads nothing
         t[3].query: None,  # never submits
-        t[4].query: t[4].gold.answer,
+        t[4].query: t[4].gold.answer,  # right after its first program crashes
     }
-    batch = _run(h, keys, answers, reads={keys[2]: False})
+    batch = _run(h, keys, answers, reads={keys[2]: False}, crash_first=[keys[4]])
     runs = {r.task_key: r for r in h.ledger.runs(batch.batch_id)}
     stop = [runs[k].stop_reason for k in keys]
     assert stop == ["submitted", "submitted", "submitted", "max_steps", "submitted"]
@@ -126,6 +137,9 @@ def test_given_files_runs_score_verify_report_and_replay(tmp_path: Path) -> None
     assert len(steps) == 2 and steps[0].request["tools"][0]["function"]["name"] == "run_python"
     assert "Expected answer type" not in steps[0].request["messages"][1]["content"]
     assert [p.kind for p in h.ledger.programs(r0.run_id)] == ["cell", "final_rerun"]
+    r4 = runs[keys[4]].run_id
+    assert [p.kind for p in h.ledger.programs(r4)] == ["cell", "submit_check", "final_rerun"]
+    assert len(h.ledger.steps(r4)) == 3
     assert batch.system_prompt_sha256 == agent_runs.prefix_sha256()
 
     verified = {
@@ -142,6 +156,7 @@ def test_given_files_runs_score_verify_report_and_replay(tmp_path: Path) -> None
     out = report.summarise(h.ledger, batch, h.tasks, 200, 0)
     assert out["verified_success"]["rate"] == pytest.approx(2 / 5)
     assert out["agent"]["submitted"] == 4 and out["agent"]["access_verified"] == 3
+    assert out["agent"]["submissions_returned_for_fix"] == 1
     assert out["stop_reasons"] == {"submitted": 4, "max_steps": 1}
 
     # Replay: recorded responses and programs, no model, no sandbox.

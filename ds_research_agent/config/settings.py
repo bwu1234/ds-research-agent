@@ -106,6 +106,10 @@ class AgentSettings(_Strict):
     # From this many steps left, each step's last message carries a fixed
     # notice to commit and submit (the last step: submit now). 0 disables.
     budget_warning_steps: NonNegativeInt
+    # Submissions whose program fails in its fresh run, or prints no answer
+    # line, that are returned to the model for a fix, per run. Each costs a
+    # step; on the last step the submission is final. 0: the first is final.
+    submit_checks: NonNegativeInt
     # Identical resends after a model-runner crash, per request (not repairs).
     server_retries: NonNegativeInt
 
