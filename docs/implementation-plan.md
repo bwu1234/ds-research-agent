@@ -706,6 +706,43 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
   - Not done in (a): input-file hashes (D4's answer object), recording
     sandbox runs in the ledger (with the loop in step d), and an OOM-kill
     flag (memory exhaustion shows as a nonzero exit code only).
+- **(b) Package set, done 2026-10-09.** File-type inventory of the
+  fetched agent-visible store (1,742 files, as listed in its `SHA256SUMS`;
+  the evaluation plan's per-domain table counts 1,764 from the upstream repo
+  tree, and the two have not been reconciled): csv 1,626; sp3 37 with 37 XML `.HDR`
+  sidecars; txt 18; xlsx 10; tle, lst, gpkg, dat 2 each; text, py, npz,
+  json, html, cdf 1 each. By domain: astronomy 1,538 (every non-CSV format
+  except xlsx, gpkg, json, html, py, and one txt), legal 132, environment 37,
+  wildfire 22, biomedical 8, archeology 5.
+  - Top-level packages in `sandbox/image/requirements.in`, compiled by
+    `uv pip compile --universal --generate-hashes --exclude-newer
+    2026-09-25` (only releases at least two weeks old) into
+    `requirements.txt`. The image installs wheels only, with
+    `--require-hashes`, and pins `strace=6.13+ds-1`, so the build fails
+    rather than drifting. This closes step (a)'s reproducibility gap,
+    except that Debian packages still come from the live mirror.
+  - Format readers: pandas (csv and whitespace tables), openpyxl (xlsx),
+    pyogrio and geopandas with shapely and pyproj (gpkg), numpy (npz),
+    cdflib 1.3.14 (cdf), sgp4 2.27 (tle), lxml (`read_html`, XML), pyarrow
+    (parquet in scratch). sp3 has no maintained reader (`sp3` 1.1.1 is from
+    2022 with no wheels; `georinex` was last released in 2023), so it is
+    parsed as fixed-format text. Also included, as a capability choice rather
+    than a format need: scipy 1.18.1, statsmodels 0.15.0, scikit-learn 1.9.1.
+    29 packages in all; the image is 1.22 GB.
+  - `tests/sandbox/test_formats.py` (marker `docker`) writes a synthetic file
+    per format in one sandbox run and reads each back as a mounted input in
+    another (sgp4 propagates a public ISS TLE). The audit observes every
+    file.
+  - `scripts/check_sandbox_formats.py` (local only; per-file results under
+    `data/measurements/`) loaded every agent-visible file in the sandbox, one
+    run per domain, about 54 s in all (biomedical's xlsx files took 40 s).
+    Every file was readable with the image's packages. Status: cdf, dat,
+    gpkg, hdr, html, json, lst, npz, sp3, tle, xlsx all `ok`. CSV: 1,611
+    `ok`, 10 need latin-1, and 5 fail pandas' default parser with ragged
+    rows (more fields than the header). Those are wrangling problems, not
+    missing packages. The 18 txt files, the one `text` file, and the `py`
+    file are text that is not a whitespace table. All six domain runs had a
+    complete audit, and every loaded file was observed.
 
 ## D4 — End to end with provenance
 

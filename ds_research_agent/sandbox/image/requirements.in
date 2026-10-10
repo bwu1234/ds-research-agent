@@ -1,0 +1,20 @@
+# Top-level sandbox packages. Compile with:
+#   uv pip compile ds_research_agent/sandbox/image/requirements.in \
+#     -o ds_research_agent/sandbox/image/requirements.txt --universal \
+#     --python-version 3.14 --generate-hashes --exclude-newer 2026-09-25
+# Format readers, from the KramaBench file-type inventory (D3 progress):
+pandas      # csv, txt, dat, lst; read_html with lxml
+openpyxl    # xlsx
+pyogrio     # gpkg (GDAL)
+geopandas   # gpkg as GeoDataFrames
+shapely
+pyproj
+numpy       # npz
+cdflib      # cdf
+sgp4        # tle propagation
+lxml        # html tables, XML sidecars (.HDR)
+pyarrow     # parquet in scratch
+# General analysis; not format readers, but there is no network to add them later.
+scipy
+statsmodels
+scikit-learn
