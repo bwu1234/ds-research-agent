@@ -338,13 +338,19 @@ def cmd_report(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def cmd_compare(args: argparse.Namespace, settings: Settings) -> int:
-    _, tasks = frozen_split(settings)
+    split, tasks = frozen_split(settings)
     ledger = Ledger(settings.eval.ledger_path)
     base = ledger.batch(args.batch[0])
     ev = settings.eval
     for bid in args.batch[1:]:
         out = report.compare(
-            ledger, base, ledger.batch(bid), tasks, ev.bootstrap_resamples, ev.bootstrap_seed
+            ledger,
+            base,
+            ledger.batch(bid),
+            tasks,
+            ev.bootstrap_resamples,
+            ev.bootstrap_seed,
+            exclude=split.sample if args.exclude_sample else (),
         )
         print(json.dumps(out, indent=2))
     return 0
@@ -445,6 +451,12 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("replay", "score", "report", "compare", "choose-think"):
         p = sub.add_parser(name)
         p.add_argument("--batch", action="append", required=True)
+        if name == "compare":
+            p.add_argument(
+                "--exclude-sample",
+                action="store_true",
+                help="leave out the 12-task tuning sample (the registered D3 primary result)",
+            )
     sub.add_parser("list")
     f = sub.add_parser("failures")
     f.add_argument("--batch", action="append", required=True)

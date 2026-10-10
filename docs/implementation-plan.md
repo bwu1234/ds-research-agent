@@ -1094,10 +1094,21 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
   2026-10-10**, before any development-split agent run. Disclosure: drafted on
   2026-10-10 after seeing the 12-task sample results (`-d3e`, `-d3f`) and
   the D1 baselines; no development-split result exists for either agent
-  condition. The sample's 12 tasks are inside the development split and
-  were used for tuning, so every result is also reported on the 41 other
-  tasks as a sensitivity check.
-  - **Comparisons.** On the 53 development tasks, thinking off unless the
+  condition.
+  - **Primary task set: the 41 untuned development tasks** (amended
+    2026-10-10, before any development-split agent run). The 12 sample
+    tasks are inside the development split, and their failures were read
+    next to the gold answers to tune the agent: the submit check, the
+    sign and import prompt lines, and the budgets. Neither comparator was
+    tuned on them, so including them biases both comparisons toward
+    `given_files`. The bound: tuning turned 2 of the 12 from wrong to right,
+    at most about 4 points of strict accuracy over 53 tasks. The decision
+    rules below therefore apply to the 41 other tasks (archeology 4,
+    astronomy 4, biomedical 3, environment 8, legal 13, wildfire 9; `compare
+    --exclude-sample`). The 53 and the 12 are reported alongside and do not
+    decide. The first version of this entry, merged in #15, had the 53 as
+    the primary set and the 41 as a check.
+  - **Comparisons.** Runs cover all 53 development tasks, thinking off,
     `answer_type` hidden, `local-deterministic-v1`:
     - *P1, execution:* `given_files` minus `inline`. `inline` is the D1
       batch `d1-dev-inline-off`, reused rather than rerun (same model,
@@ -1127,11 +1138,13 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     budget, about 11 h), and per-task scores average the two passes.
     Repeats do not narrow the task-sampling uncertainty below.
   - **Minimum worthwhile gain: +10 percentage points of strict accuracy**
-    (about 5 of 53 tasks). Primary metric: all-task strict accuracy.
+    (about 4 of 41 tasks). Primary metric: all-task strict accuracy on
+    the 41 primary tasks.
     Secondary: answer score, verified success (P2 only; `inline` has no
     program), and runtime. Paired differences D use 95% percentile
     bootstrap intervals over parent tasks within domain, as in D1.
-  - **Decision rules**, applied to D for each comparison:
+  - **Decision rules**, applied to D on the 41 primary tasks for each
+    comparison:
     - *Worthwhile gain:* D at least +10 points and interval lower bound
       above 0.
     - *Gain ruled out:* interval upper bound below +10 points.
@@ -1153,10 +1166,11 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     (gain ruled out or inconclusive) and the candidate's median task time
     is 1.5 times the comparator's or more, the decision moves to
     *simplify*.
-  - **Power, stated in advance.** D1's paired strict-accuracy interval on
-    these 53 tasks was about ±11 points wide. A true +10-point gain would
-    therefore most likely come out *inconclusive*. Only an observed
-    difference of about +12 points or more clears zero. More repeats
+  - **Power, stated in advance.** D1's paired strict-accuracy interval
+    (`inline` minus `no_tools`) was about ±11 points on the 53 tasks and
+    ±12.2 on the 41 primary tasks. A true +10-point gain would therefore
+    most likely come out *inconclusive*. Only an observed difference of
+    about +13 points or more clears zero. More repeats
     cannot fix this; only more tasks can, and the holdout stays sealed
     until D5.
   - **Operator effort**, per condition: one-time setup minutes,

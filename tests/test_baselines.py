@@ -233,6 +233,19 @@ def test_missing_runs_count_as_zero_and_paired_compare(tmp_path: Path) -> None:
     good = _run(h, "inline", keys, {})
     out = report.compare(h.ledger, h.ledger.batch(base), h.ledger.batch(good), h.tasks, 200, 0)
     assert out["score"]["diff"] == 1.0 and out["score"]["diff_ci95"] == [1.0, 1.0]
+    assert (out["tasks"], out["excluded"]) == (len(keys), 0)
+    assert h.split.sample
+    rest = report.compare(
+        h.ledger, h.ledger.batch(base), h.ledger.batch(good), h.tasks, 200, 0,
+        exclude=h.split.sample,
+    )  # fmt: skip
+    assert rest["tasks"] == len(keys) - len(h.split.sample) and rest["excluded"] == len(
+        h.split.sample
+    )
+    with pytest.raises(ValueError, match="no tasks left"):
+        report.compare(
+            h.ledger, h.ledger.batch(base), h.ledger.batch(good), h.tasks, 200, 0, exclude=keys
+        )
     # A planned task with no run row still counts in the denominator.
     partial = new_batch(
         s, h.model, h.split, condition="inline", task_set="dev", keys=keys, repeats=1,
