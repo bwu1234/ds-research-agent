@@ -18,10 +18,17 @@ Problems, as Ollama 0.35.1 surfaces them for the qwen3.5 parser:
 - ``invalid_arguments``: the arguments fail the tool's schema. Ollama has
   already coerced each value toward its declared type, so a wrong type here
   means coercion failed (for example ``"three"`` for an integer).
+
+A failed request whose error names a crashed model runner (Ollama 0.40.2's
+MLX panic on prefix-cache reuse, D3) is not a tool-call problem: it is
+retried with the identical request up to ``server_retries`` times, with
+nothing appended, and then raised. Telling the model its call was rejected
+would be false and changes its trajectory.
 """
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Sequence
 from typing import Any, Literal
@@ -41,6 +48,11 @@ from ds_research_agent.models import (
 ProblemKind = Literal["parse_error", "unparsed_markup", "unknown_tool", "invalid_arguments"]
 # Sub-kind for invalid_arguments, from the failing JSON Schema keyword.
 ArgumentFault = Literal["wrong_type", "missing_required", "unexpected_argument", "other"]
+
+# Errors that mean the model runner failed, not that output failed to parse.
+RUNNER_FAILURE = re.compile(
+    r"runner failed|runner process|unexpectedly stopped|panic:|out of memory", re.IGNORECASE
+)
 
 # Qwen tool-call markup that should never survive parsing into content.
 TOOL_MARKUP = ("<tool_call>", "</tool_call>", "<function=", "<parameter=")
@@ -78,6 +90,8 @@ class StepOutcome(_Frozen):
     appended: tuple[ChatMessage, ...]
     repairs: tuple[RepairRecord, ...]
     wall_s: float
+    # Runner failures retried with the identical request.
+    server_retries: tuple[str, ...] = ()
 
     @property
     def exhausted(self) -> bool:
@@ -187,21 +201,52 @@ def repair_messages(
     return out
 
 
+def is_runner_failure(e: ModelResponseError) -> bool:
+    return bool(RUNNER_FAILURE.search(e.message))
+
+
+async def _chat_retrying(
+    client: ModelClient,
+    messages: Sequence[ChatMessage],
+    tools: Sequence[ToolSpec],
+    retries: int,
+    failures: list[str],
+) -> ChatResult:
+    """One request, resent unchanged after a runner failure, up to ``retries`` times."""
+    for attempt in range(retries + 1):
+        try:
+            return await client.chat(messages, tools)
+        except ModelResponseError as e:
+            if not is_runner_failure(e) or attempt == retries:
+                raise
+            failures.append(e.message)
+    raise AssertionError("unreachable")
+
+
 async def chat_with_repair(
     client: ModelClient,
     messages: Sequence[ChatMessage],
     tools: Sequence[ToolSpec],
     max_repairs: int,
+    server_retries: int = 0,
 ) -> StepOutcome:
-    """Run one model step, repairing rejected tool calls up to ``max_repairs`` times."""
+    """Run one model step, repairing rejected tool calls up to ``max_repairs`` times.
+
+    A runner failure that outlasts ``server_retries`` identical resends is
+    raised as ``ModelResponseError``; it is never treated as a parse error."""
     start = time.monotonic()
     appended: list[ChatMessage] = []
     repairs: list[RepairRecord] = []
+    failures: list[str] = []
     for attempt in range(max_repairs + 1):
         t0 = time.monotonic()
         try:
-            result = await client.chat([*messages, *appended], tools)
+            result = await _chat_retrying(
+                client, [*messages, *appended], tools, server_retries, failures
+            )
         except ModelResponseError as e:
+            if is_runner_failure(e):
+                raise
             problems = [
                 CallProblem(kind="parse_error", detail=f"Tool call not parsed: {e.message}")
             ]
@@ -224,6 +269,7 @@ async def chat_with_repair(
                 appended=tuple(appended),
                 repairs=tuple(repairs),
                 wall_s=time.monotonic() - start,
+                server_retries=tuple(failures),
             )
         repairs.append(
             RepairRecord(
@@ -240,4 +286,5 @@ async def chat_with_repair(
         appended=tuple(appended),
         repairs=tuple(repairs),
         wall_s=time.monotonic() - start,
+        server_retries=tuple(failures),
     )

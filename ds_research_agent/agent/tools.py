@@ -73,7 +73,8 @@ SUBMIT_ANSWER = ToolSpec(
             "program": {
                 "description": (
                     "A self-contained Python program that reads the raw files, recomputes "
-                    'the answer, and prints it as the last line: {"answer": <value>}.'
+                    'the answer, and ends with print(json.dumps({"answer": value})) '
+                    "so that its last line of output is JSON."
                 ),
                 "type": "string",
             },
@@ -114,8 +115,10 @@ or explanation. Use a list only when the question asks for several items.
 - files_used: the paths of the files the answer is computed from.
 - program: a self-contained program that reads the raw files from /data, \
 recomputes the answer from scratch without kernel state or files in /scratch, \
-and prints the answer as its last line of output: {{"answer": <value>}}. It is \
-rerun in a fresh sandbox, and the rerun must reproduce your answer.
+and ends with print(json.dumps({{"answer": value}})) so that its last line of \
+output is JSON. Convert numpy and pandas values with int(), float(), str(), or \
+.tolist() first. It is rerun in a fresh sandbox, and the rerun must reproduce \
+your answer.
 - assumptions (optional): interpretation choices you made.
 
 If you cannot find an answer, still submit your best estimate."""
@@ -129,17 +132,38 @@ CUT_OFF = (
     "Your reply was cut off at the output length limit and nothing was run. "
     "Reply more briefly, with a single tool call."
 )
+BUDGET_LOW = (
+    "{n} turns left, counting the one that submits. Stop exploring: commit to the "
+    "most likely interpretation, note the alternatives in assumptions, and call "
+    "submit_answer."
+)
+LAST_TURN = (
+    "This is your last turn. Call submit_answer now with your best answer; "
+    "the run ends without an answer otherwise."
+)
 KERNEL_RESTARTED = (
     "The kernel was restarted after the previous call ({why}); all variables, "
     "imports, and loaded data were lost."
 )
 
 
-def user_prompt(question: str, files: Sequence[tuple[str, int]], answer_type: str | None) -> str:
-    """The per-task message: question and the labelled files (path, bytes)."""
+def user_prompt(
+    question: str,
+    files: Sequence[tuple[str, int]],
+    answer_type: str | None,
+    max_steps: int | None = None,
+) -> str:
+    """The per-task message: question, the labelled files (path, bytes), and
+    the turn budget. Per task, so not part of the cached prefix."""
     lines = [f"Question: {question}"]
     if answer_type is not None:
         lines.append(f"Expected answer type: {answer_type}")
     lines += ["", f"Data files for this question ({len(files)}):"]
     lines += [f"- {path} ({size:,} bytes)" for path, size in files]
+    if max_steps is not None:
+        lines += [
+            "",
+            f"You have {max_steps} turns, and each reply uses one. Call submit_answer "
+            "before they run out; a run that ends without submitting has no answer.",
+        ]
     return "\n".join(lines)

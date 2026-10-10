@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09; agent loop and the `given_files` condition done 2026-10-10, smoke tasks only); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -813,7 +813,7 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
   - `tests/sandbox/test_kernel.py` (marker `docker`, 14 tests). Measured
     (Docker Desktop, 5 sessions): start 0.16 s median, a trivial cell's round
     trip 1 ms median (3 ms max), close 0.14 s.
-- **(d1) Agent loop, done 2026-10-10; not yet run with the model**
+- **(d1) Agent loop, done 2026-10-10**
   (`ds_research_agent/agent/`: `loop.py`, `tools.py`, `answers.py`,
   `workspace.py`). The KramaBench `given_files` condition, agent-run replay,
   and the first live run are step (d2).
@@ -834,8 +834,9 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     `max_steps`, `max_wall`, `tool_call_failure` (repairs exhausted),
     `model_error`, `sandbox_error`. Only `submitted` carries an answer.
   - **Submission.** `submit_answer` takes the answer, `files_used`, a
-    self-contained `program` that must print `{"answer": ...}` as its last
-    line, and optional `assumptions` (the stated-interpretation candidate,
+    self-contained `program` whose last line of output must be the JSON
+    `{"answer": ...}` (the prompt asks for `print(json.dumps(...))`; see d2),
+    and optional `assumptions` (the stated-interpretation candidate,
     recorded only). Because `answer_type` is hidden from the agent (decided
     in D1), there is one union schema (number, string, or list of either),
     not a schema per answer type as the D3 bullet above assumed. A submission
@@ -856,7 +857,7 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     pinned by a hash test, so a change is deliberate (it invalidates replays
     and the cached prefix). The prompt names the image's packages, and a test
     keeps that list equal to `requirements.in`.
-  - **Tests.** `tests/test_agent_loop.py` (offline, 22): every stop reason,
+  - **Tests.** `tests/test_agent_loop.py` (offline, 27 after d2): every stop reason,
     nudges, re-plan, kernel restart, cell timeout capped by wall time left,
     submission checks, the comparator, and truncation.
     `tests/test_ledger_programs.py` (offline, 3).
@@ -867,6 +868,81 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     the acceptance asks: a wrong calculation and a hard-coded answer that
     still reads the file both reproduce and pass observed access (only the
     evaluator catches them), and a program that reads nothing fails access.
+- **(d2) `given_files` condition and first live runs, done 2026-10-10**
+  (`eval/kramabench/agent_runs.py`; `run --condition given_files`). Only
+  the task's labelled `data_sources` files, resolved as for the inlined
+  baseline, are mounted read-only at `/data/<domain>/input/...`; the prompt
+  lists their container paths and sizes. The run manifest records each
+  file's sha256, the resolution tiers, and the sandbox image ID. Every model
+  request, repairs included, is a ledger step, so the D1 `ReplayClient`
+  replays agent runs; `ReplayWorkspace` returns the recorded cells, final
+  rerun, and session audits instead of the sandbox and refuses changed code.
+  Scoring: answer score and strict accuracy as for the baselines, and
+  verified success = strict and reproduced and observed access verified. A
+  run that does not submit has verified success false, not "not
+  applicable". Reports add a `verified_success` block and an `agent` block
+  (requests and cells per run, re-plans, submitted, reproduced, access
+  verified). `resume` also compares the agent and sandbox settings.
+  `tests/test_given_files.py` (offline, 2) runs synthetic tasks through
+  scoring, the report, and replay with a scripted model.
+  - **Ollama 0.40.2 incident.** Ollama auto-updated from 0.35.1 to 0.40.2
+    during the first smoke batch. 0.40.x's MLX runner panics when it reuses a
+    cached prefix (`sdpa_vector_2pass` requests 960 threads per threadgroup
+    against a limit of 896; upstream ollama/ollama#18846 and #18856, fix
+    pending in ml-explore/mlx#4643), so warm requests in an agent run
+    failed. The model digest was unchanged. 0.35.1 was reinstalled from the
+    release download (sha256, code signature, and notarization checked), and
+    cache reuse works again (one measured pair: 12.3 s cold prompt
+    evaluation, 0.13 s warm). That batch (`-d2a`) is discarded. Two guards
+    followed: `model.server_version` (the harness refuses to run against any
+    other Ollama version), and a runner-failure class in the repair policy
+    (a runner crash is resent unchanged up to `agent.server_retries` times
+    and is never treated as a tool-call parse error). Ollama's auto-update
+    setting must be off for unattended batches.
+  - **Smoke results** (`environment-tiny/environment-easy-1` and
+    `legal-tiny/legal-hard-1`; thinking off, 12 steps, one repeat each).
+    Two tasks show that the workflow runs end to end; they say nothing about
+    accuracy.
+    - `-d2b`, the d1 prompt: both runs reached `max_steps` without
+      submitting, with no failed cells. The environment run kept recomputing
+      two readings of an ambiguous term in code comments; the legal run kept
+      re-parsing one HTML file. The repeated-error re-plan never fired, and
+      the agent was never told its budget.
+    - Fix: the per-task message now states the turn budget (it is not part
+      of the cached prefix). From `agent.budget_warning_steps` turns left,
+      the step's last message carries a fixed notice to commit to an
+      interpretation, record alternatives in `assumptions`, and submit; the
+      final turn says to submit now. The notice is appended to a message the
+      model has not yet seen, so the context stays append-only (tested). No
+      submission is forced: offering only `submit_answer` on the last turn
+      would change the tool list and the cached prefix, and would hide the
+      failure.
+    - `-d2c`: both runs submitted (environment at step 5, legal at step 12
+      after both notices), but neither reproduced. Both programs printed a
+      Python dict repr, not JSON, which the d1 wording `{"answer": <value>}`
+      invited. The system prompt and the `program` schema description now
+      say `print(json.dumps({"answer": value}))` and to convert numpy and
+      pandas values first. This changed the pinned prefix hash, so batches
+      recorded before it (`-d2b`, `-d2c`) no longer replay (step 0 mismatch,
+      as designed).
+    - `-d2d`: both runs submitted, reproduced, and passed observed access.
+      The environment run is strictly correct, so verified (5 steps, 70 s).
+      The legal run is wrong (12 steps, 213 s): one of its two labelled
+      entries is an upstream typo that stays `unresolved` (the D0 rule), so
+      the needed data was not mounted, and the agent said so in
+      `assumptions`. Replay of `-d2d`: 0 differences.
+  - **Measured on 0.35.1** (`-d2b`, 24 requests): the prompt grows to about
+    7k tokens over 12 steps. Prompt evaluation takes about 1 s when a step
+    adds a short tool result and 9 to 13 s when it adds about 1,000 tokens,
+    consistent with about 100 tokens/s on the new tokens only, so the
+    prefix cache is reused across steps. Generation runs at about 22
+    tokens/s. Steps took 6 to 38 s and runs 2.4 to 4 min, well below the
+    ~155 s per step estimated in D1, which assumed longer outputs.
+  - **Not done in d2:** a submission is final, so an unparsable or
+    non-reproducing program cannot be fixed by resubmitting (that needs
+    several submissions per run in the ledger); there is no wall-clock budget
+    notice. The failure taxonomy, the 12-task sample, and step and output
+    caps chosen from it come next.
 
 ## D4 — End to end with provenance
 
@@ -1028,6 +1104,9 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
   2026-10-09; see D3 progress).
 - Persistent kernel: a minimal REPL behind a trusted bridge over the
   container's stdio, not ipykernel (D3, 2026-10-09; see D3 progress).
+- Ollama stays at 0.35.1, checked against `model.server_version` before
+  every batch, until a release fixes MLX prefix-cache reuse (D3,
+  2026-10-10; see D3 progress, d2).
 
 
 - The main model is `qwen3.8:27b-mlx` through Ollama.

@@ -24,9 +24,16 @@ from ds_research_agent.agent import (
 )
 from ds_research_agent.agent.answers import check_submission, program_answer, reproduces
 from ds_research_agent.agent.loop import render_cell
-from ds_research_agent.agent.tools import SANDBOX_PACKAGES
+from ds_research_agent.agent.tools import BUDGET_LOW, LAST_TURN, SANDBOX_PACKAGES
 from ds_research_agent.config import AgentSettings
-from ds_research_agent.models import ChatMessage, ChatResult, ToolCall, ToolSpec, Usage
+from ds_research_agent.models import (
+    ChatMessage,
+    ChatResult,
+    ModelResponseError,
+    ToolCall,
+    ToolSpec,
+    Usage,
+)
 from ds_research_agent.sandbox import AuditResult, CellResult, ObservedRead, SandboxRun, SessionEnd
 
 F = "/data/legal/input/a.csv"
@@ -38,6 +45,8 @@ SETTINGS = AgentSettings(
     max_output_tokens=4096,
     max_tool_output_chars=50,
     replan_after_repeats=2,
+    budget_warning_steps=0,
+    server_retries=1,
 )
 
 
@@ -264,6 +273,24 @@ async def test_step_budget_ends_without_an_answer() -> None:
     assert out.submission is None and rec.submissions == []
 
 
+async def test_budget_notice_on_the_last_steps_keeps_context_append_only() -> None:
+    warned = SETTINGS.model_copy(update={"budget_warning_steps": 2})
+    client = Script(*[reply(py()) for _ in range(4)], reply(content="hm"), reply(py()))
+    out, _ = await go(client, FakeWorkspace(), settings=warned)
+    assert out.stop_reason == "max_steps"
+    texts = [last_tool_text(client, i) for i in range(1, 6)]
+    assert not any("turns left" in t or "last turn" in t for t in texts[:3])
+    assert texts[3].endswith(BUDGET_LOW.format(n=2))  # after step 4 of 6
+    assert texts[4].startswith("No tool was called") and texts[4].endswith(LAST_TURN)
+    for a, b in itertools.pairwise(client.requests):
+        assert b[: len(a)] == a
+
+
+def test_user_prompt_states_the_turn_budget() -> None:
+    assert "turns" not in user_prompt("Q?", [(F, 1)], None)
+    assert "You have 12 turns" in user_prompt("Q?", [(F, 1)], None, 12)
+
+
 async def test_wall_budget_ends_the_run() -> None:
     ticks = iter([0.0, 0.0, 500.0, 1200.0, 1200.0, 1200.0])
     client = Script(reply(py()), reply(py()))
@@ -310,6 +337,31 @@ async def test_repair_exhaustion_stops_with_tool_call_failure() -> None:
     assert out.stop_reason == "tool_call_failure" and out.steps == 1
 
 
+PANIC = ModelResponseError("mlx runner failed: panic: mlx: Maximum threads per threadgroup", 500)
+
+
+async def test_runner_crash_is_resent_unchanged_not_repaired() -> None:
+    client = Script(reply(py()), PANIC, reply(submit()))
+    out, _ = await go(client, FakeWorkspace())
+    assert out.stop_reason == "submitted"
+    # The resend is byte-identical: no "rejected" feedback was appended.
+    assert client.requests[1] == client.requests[2]
+    assert not any("rejected" in m.content for m in client.requests[2])
+
+
+async def test_runner_crash_beyond_retries_is_a_model_error() -> None:
+    out, _ = await go(Script(PANIC, PANIC), FakeWorkspace())
+    assert out.stop_reason == "model_error" and "runner failed" in (out.error or "")
+
+
+async def test_parse_error_is_still_repaired() -> None:
+    parse = ModelResponseError("XML syntax error on line 23: element <function> closed", 500)
+    client = Script(parse, reply(submit()))
+    out, _ = await go(client, FakeWorkspace())
+    assert out.stop_reason == "submitted"
+    assert "was rejected" in client.requests[1][-1].content
+
+
 async def test_model_error_stops_the_run() -> None:
     out, _ = await go(Script(ConnectionError("refused")), FakeWorkspace())
     assert out.stop_reason == "model_error" and "refused" in (out.error or "")
@@ -353,7 +405,7 @@ def test_prompt_prefix_is_pinned() -> None:
     assert hashlib.sha256(blob.encode()).hexdigest() == PINNED_PREFIX_SHA256
 
 
-PINNED_PREFIX_SHA256 = "4c16b1e2a55aa6d68910ce7b53ed44a7f08cedeb85d924346326c5134898538d"
+PINNED_PREFIX_SHA256 = "77324115acd402b9f98d5eb2bfa78a224a2295998e76d4324676703098fd8352"
 
 
 def test_package_list_matches_the_image() -> None:

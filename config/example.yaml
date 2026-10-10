@@ -8,6 +8,7 @@ model:
     seed: 0
   keep_alive: 30m
   request_timeout_s: 900
+  server_version: 0.35.1      # D0/D1 measured here; 0.40.x MLX panics on cache reuse
 
 mcp:
   command: /ABS/PATH/rag-toolkit-dsra/.venv/bin/python
@@ -45,6 +46,8 @@ agent:
   max_output_tokens: 4096
   max_tool_output_chars: 4000
   replan_after_repeats: 2
+  budget_warning_steps: 2
+  server_retries: 2
 
 sandbox:
   docker: docker
