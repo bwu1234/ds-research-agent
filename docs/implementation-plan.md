@@ -1105,8 +1105,9 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     at most about 4 points of strict accuracy over 53 tasks. The decision
     rules below therefore apply to the 41 other tasks (archeology 4,
     astronomy 4, biomedical 3, environment 8, legal 13, wildfire 9; `compare
-    --exclude-sample`). The 53 and the 12 are reported alongside and do not
-    decide. The first version of this entry, merged in #15, had the 53 as
+    --subset untuned`). The 53 (`--subset all`) and the 12 (`--subset
+    sample`) are paired from the same batches, reported alongside, and do
+    not decide. The first version of this entry, merged in #15, had the 53 as
     the primary set and the 41 as a check.
   - **Comparisons.** Runs cover all 53 development tasks, thinking off,
     `answer_type` hidden, `local-deterministic-v1`:

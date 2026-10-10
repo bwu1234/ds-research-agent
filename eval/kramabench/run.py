@@ -342,6 +342,12 @@ def cmd_compare(args: argparse.Namespace, settings: Settings) -> int:
     ledger = Ledger(settings.eval.ledger_path)
     base = ledger.batch(args.batch[0])
     ev = settings.eval
+    sample = set(split.sample)
+    keys = {
+        "all": None,
+        "untuned": [k for k in base.task_keys if k not in sample],
+        "sample": [k for k in base.task_keys if k in sample],
+    }[args.subset]
     for bid in args.batch[1:]:
         out = report.compare(
             ledger,
@@ -350,8 +356,9 @@ def cmd_compare(args: argparse.Namespace, settings: Settings) -> int:
             tasks,
             ev.bootstrap_resamples,
             ev.bootstrap_seed,
-            exclude=split.sample if args.exclude_sample else (),
+            keys=keys,
         )
+        out["subset"] = args.subset
         print(json.dumps(out, indent=2))
     return 0
 
@@ -453,9 +460,11 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--batch", action="append", required=True)
         if name == "compare":
             p.add_argument(
-                "--exclude-sample",
-                action="store_true",
-                help="leave out the 12-task tuning sample (the registered D3 primary result)",
+                "--subset",
+                choices=("all", "untuned", "sample"),
+                default="all",
+                help="tasks to pair: all, all but the 12-task tuning sample (the "
+                "registered D3 primary result), or the sample alone",
             )
     sub.add_parser("list")
     f = sub.add_parser("failures")

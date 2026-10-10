@@ -258,22 +258,24 @@ def compare(
     tasks: dict[str, Task],
     resamples: int,
     seed: int,
-    exclude: Collection[str] = (),
+    keys: Collection[str] | None = None,
 ) -> dict[str, Any]:
-    """Paired difference ``other - base`` over their shared tasks, less
-    ``exclude`` (the D3 primary result excludes the tuning sample)."""
+    """Paired difference ``other - base`` over their shared tasks, or over
+    ``keys`` among them (D3: the untuned tasks, then the tuning sample)."""
     if set(base.task_keys) != set(other.task_keys):
         raise ValueError("batches cover different tasks; a paired comparison needs the same set")
-    drop = set(exclude)
-    ob = [o for o in outcomes(ledger, base, tasks) if o.key not in drop]
-    oo = [o for o in outcomes(ledger, other, tasks) if o.key not in drop]
-    if not ob:
-        raise ValueError("no tasks left to compare")
+    keep = set(base.task_keys) if keys is None else set(keys)
+    if not keep <= set(base.task_keys):
+        raise ValueError("keys outside the batches' tasks")
+    if not keep:
+        raise ValueError("no tasks to compare")
+    ob = [o for o in outcomes(ledger, base, tasks) if o.key in keep]
+    oo = [o for o in outcomes(ledger, other, tasks) if o.key in keep]
     out: dict[str, Any] = {
         "base": base.batch_id,
         "other": other.batch_id,
-        "tasks": len({o.key for o in ob}),
-        "excluded": len(drop & set(base.task_keys)),
+        "tasks": len(keep),
+        "of_tasks": len(base.task_keys),
     }
     for field in ("score", "strict"):
         b, o = per_task(ob, field), per_task(oo, field)
