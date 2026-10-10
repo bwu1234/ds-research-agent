@@ -14,10 +14,12 @@ import random
 import statistics
 from collections import Counter, defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from ds_research_agent.ledger import Batch, Ledger, Step
+from eval.kramabench import agent_runs
+from eval.kramabench.baselines import PROGRAM_CONDITIONS
 from eval.kramabench.scoring import PROFILE
 from eval.kramabench.tasks import Task
 
@@ -35,6 +37,8 @@ class Outcome:
     repeat: int
     score: float
     strict: bool
+    # None in conditions without a program (the D1 baselines).
+    verified: bool | None
     stop_reason: str
     parse_status: str | None
     wall_s: float | None
@@ -70,6 +74,7 @@ def outcomes(ledger: Ledger, batch: Batch, tasks: dict[str, Task]) -> list[Outco
                     repeat=rep,
                     score=sc.score if sc else 0.0,
                     strict=bool(sc and sc.strict),
+                    verified=sc.verified_success if sc else None,
                     stop_reason=(r.stop_reason or "unfinished") if r else "missing",
                     parse_status=ans.parse_status if ans else None,
                     wall_s=r.wall_s if r else None,
@@ -187,6 +192,18 @@ def summarise(
     os_ = outcomes(ledger, batch, tasks)
     scores, strict = per_task(os_, "score"), per_task(os_, "strict")
     (s_lo, s_hi), (a_lo, a_hi) = bootstrap([scores, strict], os_, resamples, seed)[:2]
+    verified: Any = "not applicable (no program)"
+    agent: dict[str, Any] | None = None
+    if batch.condition in PROGRAM_CONDITIONS:
+        # A missing or unscored run counts as not verified.
+        ver = per_task([replace(o, verified=bool(o.verified)) for o in os_], "verified")
+        v_lo, v_hi = bootstrap([ver], os_, resamples, seed)[0]
+        verified = {
+            "rate": round(statistics.fmean(ver.values()), 4),
+            "ci95": [round(v_lo, 4), round(v_hi, 4)],
+            "definition": "strict and reproduced and observed access verified",
+        }
+        agent = agent_runs.summary_extra(ledger, [r.run_id for r in ledger.runs(batch.batch_id)])
 
     def group(attr: str) -> dict[str, Any]:
         keys: dict[str, set[str]] = defaultdict(set)
@@ -216,7 +233,7 @@ def summarise(
         "answer_score_ci95": [round(s_lo, 4), round(s_hi, 4)],
         "strict_accuracy": round(statistics.fmean(strict.values()), 4),
         "strict_accuracy_ci95": [round(a_lo, 4), round(a_hi, 4)],
-        "verified_success": "not applicable (no program)",
+        "verified_success": verified,
         "uncertainty": f"percentile bootstrap, {resamples} resamples of parent tasks "
         f"within domain, seed {seed}",
         "by_domain": group("domain"),
@@ -228,7 +245,7 @@ def summarise(
         "output_tokens": _dist([o.output_tokens for o in os_ if o.output_tokens is not None]),
         "thinking_chars": _dist([o.thinking_chars for o in os_ if o.thinking_chars is not None]),
         "throughput": throughput(os_),
-    }
+    } | ({"agent": agent} if agent is not None else {})
 
 
 def compare(

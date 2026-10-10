@@ -8,7 +8,10 @@
     uv run python -m eval.kramabench.run --config config/local.yaml compare --batch A --batch B
     uv run python -m eval.kramabench.run --config config/local.yaml list
 
-``run`` calls the local model (slow, free) and needs the frozen split. Task
+Conditions: ``no_tools`` and ``inline`` (D1 baselines, one request per
+task) and ``given_files`` (the D3 agent; needs Docker, and builds or reuses
+the sandbox image). ``run`` calls the local model (slow, free) and needs the
+frozen split. Task
 sets: ``smoke`` (the two ``-tiny`` tasks), ``sample`` (the fixed D3 sample),
 ``dev``; ``holdout`` is refused unless ``--unseal-holdout`` is given, which is
 for D5 only. ``replay`` re-runs a batch through its recorded responses with
@@ -23,18 +26,23 @@ import asyncio
 import json
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import httpx
 
+from ds_research_agent.agent import DockerWorkspace
 from ds_research_agent.config import ModelSettings, Settings, load_settings
 from ds_research_agent.ledger import Batch, Ledger, canonical, utc_now
 from ds_research_agent.models.ollama_client import OllamaModelClient
-from eval.kramabench import report
+from ds_research_agent.sandbox import InputMount, SandboxRunner
+from eval.kramabench import agent_runs, report
 from eval.kramabench.baselines import (
     CONDITIONS,
+    PROGRAM_CONDITIONS,
     SYSTEM_PROMPTS,
+    AgentTask,
     Harness,
     ReplayClient,
     run_batch,
@@ -46,6 +54,7 @@ from eval.kramabench.split import Split, SplitError, frozen_split
 from eval.kramabench.tasks import Task
 
 REPO = Path(__file__).resolve().parents[2]
+ALL_CONDITIONS = (*CONDITIONS, agent_runs.CONDITION)
 
 
 def _git(*args: str) -> str | None:
@@ -109,7 +118,11 @@ def new_batch(
         ollama_version=replay_of.ollama_version if replay_of else ollama_version(model.host),
         answer_type_visible=settings.eval.answer_type_visible,
         scoring_profile=PROFILE,
-        system_prompt_sha256=sha256_text(SYSTEM_PROMPTS[condition]),  # type: ignore[index]
+        system_prompt_sha256=(
+            agent_runs.prefix_sha256()
+            if condition in PROGRAM_CONDITIONS
+            else sha256_text(SYSTEM_PROMPTS[condition])  # type: ignore[index]
+        ),
         replay_of=replay_of.batch_id if replay_of else None,
         note=note,
     )
@@ -131,9 +144,26 @@ def resume_problems(old: Batch, new: Batch) -> list[str]:
         "system_prompt_sha256",
     )
     out = [f for f in fields if getattr(old, f) != getattr(new, f)]
-    if canonical(old.config.get("eval")) != canonical(new.config.get("eval")):
-        out.append("eval settings")
+    sections = ("eval", "agent", "sandbox") if new.condition in PROGRAM_CONDITIONS else ("eval",)
+    for sec in sections:
+        if canonical(old.config.get(sec)) != canonical(new.config.get(sec)):
+            out.append(f"{sec} settings")
     return out
+
+
+def docker_agent_task(settings: Settings) -> AgentTask:
+    """Agent runs on real containers; builds (or reuses) the sandbox image."""
+    runner = SandboxRunner(settings.sandbox)
+    image = runner.build_image()
+    print(f"sandbox image {image.image_id} ({image.strace})", file=sys.stderr)
+
+    def workspace_for(_t: Task, _r: int, mounts: Sequence[InputMount]) -> DockerWorkspace:
+        return DockerWorkspace(runner, mounts)
+
+    async def task(h: Harness, b: Batch, t: Task, r: int, client: Any) -> Any:
+        return await agent_runs.run_agent_task(h, b, t, r, client, workspace_for, image.image_id)
+
+    return task
 
 
 def _progress(run: Any, done: int, total: int) -> None:
@@ -143,13 +173,22 @@ def _progress(run: Any, done: int, total: int) -> None:
 def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
     split, tasks = frozen_split(settings)
     ev = settings.eval
-    if ev.task_timeout_s > settings.model.request_timeout_s:
+    agentic = args.condition in PROGRAM_CONDITIONS
+    if not agentic and ev.task_timeout_s > settings.model.request_timeout_s:
         raise SystemExit(
             f"error: eval.task_timeout_s ({ev.task_timeout_s}) exceeds "
             f"model.request_timeout_s ({settings.model.request_timeout_s})"
         )
     model = settings.model
-    update: dict[str, Any] = {"options": model.options | {"num_predict": ev.max_output_tokens}}
+    if model.server_version is not None:
+        found = ollama_version(model.host)
+        if found != model.server_version:
+            raise SystemExit(
+                f"error: Ollama at {model.host} reports {found}, but model.server_version "
+                f"is {model.server_version}; refusing to mix server versions in results"
+            )
+    cap = settings.agent.max_output_tokens if agentic else ev.max_output_tokens
+    update: dict[str, Any] = {"options": model.options | {"num_predict": cap}}
     if args.think is not None:
         update["think"] = False if args.think == "off" else args.think
     model = model.model_copy(update=update)
@@ -190,7 +229,8 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
     print(f"batch {batch.batch_id}: {len(keys)} tasks x {args.repeats}", file=sys.stderr)
     h = Harness(settings, model, ledger, split, tasks)
     client = OllamaModelClient(model)
-    asyncio.run(run_batch(h, batch, lambda _t, _r: client, _progress))
+    agent_task = docker_agent_task(settings) if agentic else None
+    asyncio.run(run_batch(h, batch, lambda _t, _r: client, _progress, agent_task))
     _print_report(ledger, batch, tasks, settings)
     return 0
 
@@ -221,7 +261,19 @@ def cmd_replay(args: argparse.Namespace, settings: Settings) -> int:
     def client_for(t: Task, r: int) -> ReplayClient:
         return ReplayClient(model, steps.get((t.key, r), []))
 
-    asyncio.run(run_batch(h, replay, client_for))
+    agent_task: AgentTask | None = None
+    if orig.condition in PROGRAM_CONDITIONS:
+        orig_runs = {(r.task_key, r.repeat): r for r in ledger.runs(orig.batch_id)}
+
+        async def agent_task(h: Harness, b: Batch, t: Task, r: int, client: Any) -> Any:
+            o = orig_runs[(t.key, r)]
+            progs = ledger.programs(o.run_id)
+            image = o.input_manifest.get("sandbox_image")
+            return await agent_runs.run_agent_task(
+                h, b, t, r, client, lambda *_: agent_runs.ReplayWorkspace(progs), image
+            )
+
+    asyncio.run(run_batch(h, replay, client_for, agent_task=agent_task))
     diffs = []
     a_runs = {(r.task_key, r.repeat): r for r in ledger.runs(orig.batch_id)}
     for r in ledger.runs(replay.batch_id):
@@ -233,8 +285,13 @@ def cmd_replay(args: argparse.Namespace, settings: Settings) -> int:
         os_, rs = ledger.score(o.run_id, PROFILE), ledger.score(r.run_id, PROFILE)
         if (oa and oa.model_dump(exclude={"run_id"})) != (ra and ra.model_dump(exclude={"run_id"})):
             diffs.append(f"{r.task_key}: answer differs")
-        if (os_ and (os_.score, os_.strict)) != (rs and (rs.score, rs.strict)):
+        if (os_ and (os_.score, os_.strict, os_.verified_success)) != (
+            rs and (rs.score, rs.strict, rs.verified_success)
+        ):
             diffs.append(f"{r.task_key}: score differs")
+        ov, rv = ledger.verification(o.run_id), ledger.verification(r.run_id)
+        if (ov and ov.model_dump(exclude={"run_id"})) != (rv and rv.model_dump(exclude={"run_id"})):
+            diffs.append(f"{r.task_key}: verification differs")
     print(f"replayed {len(a_runs)} runs into {replay.batch_id}: {len(diffs)} differences")
     for d in diffs[:20]:
         print(f"  {d}")
@@ -247,7 +304,7 @@ def cmd_score(args: argparse.Namespace, settings: Settings) -> int:
     for bid in args.batch:
         runs = ledger.runs(bid)
         for r in runs:
-            score_run(ledger, r.run_id, tasks[r.task_key])
+            score_run(ledger, r.run_id, tasks[r.task_key], r.condition)
         print(f"rescored {len(runs)} runs in {bid} with {PROFILE}")
     return 0
 
@@ -314,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--config", type=Path, required=True)
     sub = ap.add_subparsers(dest="command", required=True)
     r = sub.add_parser("run")
-    r.add_argument("--condition", choices=CONDITIONS, required=True)
+    r.add_argument("--condition", choices=ALL_CONDITIONS, required=True)
     r.add_argument("--tasks", choices=["smoke", "sample", "dev", "holdout"], required=True)
     r.add_argument("--think", choices=["off", "low", "medium", "xhigh"])
     r.add_argument("--repeats", type=int, default=1)

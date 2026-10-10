@@ -41,6 +41,9 @@ class ModelSettings(_Strict):
     options: dict[str, Any] = Field(default_factory=dict)
     keep_alive: str = "30m"
     request_timeout_s: PositiveFloat
+    # Ollama server version runs must use (``/api/version``); a model run on
+    # any other version is refused. None disables the check.
+    server_version: str | None = None
 
 
 class McpSettings(_Strict):
@@ -100,6 +103,11 @@ class AgentSettings(_Strict):
     max_tool_output_chars: PositiveInt
     # Consecutive identical errors before the tool result demands a re-plan.
     replan_after_repeats: PositiveInt
+    # From this many steps left, each step's last message carries a fixed
+    # notice to commit and submit (the last step: submit now). 0 disables.
+    budget_warning_steps: NonNegativeInt
+    # Identical resends after a model-runner crash, per request (not repairs).
+    server_retries: NonNegativeInt
 
 
 class SandboxSettings(_Strict):

@@ -12,8 +12,10 @@ inlined-files baselines, replay, and reports (`eval/kramabench/`). D1 is done
 runner (`ds_research_agent/sandbox/`: restricted container, derived seccomp
 profile, fail-closed read audit), its hash-pinned package set, and the
 persistent kernel session exist, and so does the given-files agent loop
-(`ds_research_agent/agent/`, tested offline and with a scripted model, not yet
-run with the real model or wired into the KramaBench harness).
+(`ds_research_agent/agent/`), wired into the KramaBench harness as the
+`given_files` condition (`eval/kramabench/agent_runs.py`) and run live on the
+two smoke tasks only. The harness refuses an Ollama version other than
+`model.server_version` (0.35.1; 0.40.x crashes on prefix-cache reuse).
 Everything else is planned. Do not
 describe planned modules, tools, commands, evaluations, or integrations as
 implemented. Start with
@@ -68,6 +70,8 @@ uv run python -m eval.kramabench.run --config config/local.yaml run --condition 
 uv run python -m eval.kramabench.run --config config/local.yaml replay --batch <id>   # no model
 uv run python -m eval.kramabench.run --config config/local.yaml report --batch <id>
 scripts/run_d1.sh config/local.yaml > data/runs/d1.log 2>&1   # all D1 model runs, ~12-14 h
+# D3 given-files agent (needs Docker; builds or reuses the sandbox image); replay needs neither
+uv run python -m eval.kramabench.run --config config/local.yaml run --condition given_files --tasks smoke --think off
 ```
 
 The holdout is sealed: `run --tasks holdout` needs `--unseal-holdout`, which

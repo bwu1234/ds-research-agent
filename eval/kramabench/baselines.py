@@ -21,7 +21,7 @@ import hashlib
 import io
 import json
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -474,14 +474,22 @@ async def run_task(
             parse_status=parsed.status if result else stop,
         )
     )
-    score_run(h.ledger, run.run_id, task)
+    score_run(h.ledger, run.run_id, task, condition)
     h.ledger.finish_run(run.run_id, ended=utc_now(), wall_s=wall, stop_reason=stop, error=error)
     return run
 
 
-def score_run(ledger: Ledger, run_id: str, task: Task) -> Score:
+# Conditions whose runs submit a program; their verified success is a bool.
+PROGRAM_CONDITIONS = frozenset({"given_files"})
+
+
+def score_run(ledger: Ledger, run_id: str, task: Task, condition: str) -> Score:
     a = ledger.answer(run_id)
     s = score_answer(a.value if a else None, task.gold, answered=bool(a and a.answered))
+    verified: bool | None = None  # no program in the baseline conditions
+    if condition in PROGRAM_CONDITIONS:
+        v = ledger.verification(run_id)
+        verified = bool(s.strict and v and v.reproduced and v.access_verified)
     rec = Score(
         run_id=run_id,
         profile=PROFILE,
@@ -489,7 +497,7 @@ def score_run(ledger: Ledger, run_id: str, task: Task) -> Score:
         metric=s.metric,
         score=s.score,
         strict=s.strict,
-        verified_success=None,  # no program in these conditions
+        verified_success=verified,
         scored=utc_now(),
     )
     ledger.put_score(rec)
@@ -497,6 +505,8 @@ def score_run(ledger: Ledger, run_id: str, task: Task) -> Score:
 
 
 ClientFor = Callable[[Task, int], ModelClient]
+# Runs one agent task (given-files condition); see eval.kramabench.agent_runs.
+AgentTask = Callable[[Harness, Batch, Task, int, ModelClient], Awaitable[Run]]
 
 
 async def run_batch(
@@ -504,9 +514,11 @@ async def run_batch(
     batch: Batch,
     client_for: ClientFor,
     on_done: Callable[[Run, int, int], None] | None = None,
+    agent_task: AgentTask | None = None,
 ) -> list[Run]:
     """Run every (task, repeat) one at a time, in task order then repeat,
-    skipping pairs that already have a run row (resume)."""
+    skipping pairs that already have a run row (resume). Program conditions
+    need ``agent_task``."""
     done = {(r.task_key, r.repeat) for r in h.ledger.runs(batch.batch_id)}
     runs = []
     total = len(batch.task_keys) * batch.repeats
@@ -515,7 +527,12 @@ async def run_batch(
         for r in range(batch.repeats):
             if (key, r) in done:
                 continue
-            run = await run_task(h, batch, task, r, client_for(task, r))
+            if batch.condition in PROGRAM_CONDITIONS:
+                if agent_task is None:
+                    raise ValueError(f"condition {batch.condition} needs agent_task")
+                run = await agent_task(h, batch, task, r, client_for(task, r))
+            else:
+                run = await run_task(h, batch, task, r, client_for(task, r))
             runs.append(run)
             if on_done:
                 on_done(run, i * batch.repeats + r + 1, total)

@@ -31,8 +31,10 @@ from ds_research_agent.agent.answers import (
 )
 from ds_research_agent.agent.tool_calls import chat_with_repair
 from ds_research_agent.agent.tools import (
+    BUDGET_LOW,
     CUT_OFF,
     KERNEL_RESTARTED,
+    LAST_TURN,
     NO_TOOL_CALL,
     REPLAN,
     TOOLS,
@@ -252,7 +254,13 @@ class _Run:
                 return self.outcome("max_wall", steps)
             try:
                 step = await asyncio.wait_for(
-                    chat_with_repair(self.client, messages, TOOLS, self.s.tool_call_max_repairs),
+                    chat_with_repair(
+                        self.client,
+                        messages,
+                        TOOLS,
+                        self.s.tool_call_max_repairs,
+                        self.s.server_retries,
+                    ),
                     timeout=left,
                 )
             except TimeoutError:
@@ -268,6 +276,7 @@ class _Run:
             if not calls:
                 text = CUT_OFF if result.done_reason == "length" else NO_TOOL_CALL
                 messages.append(ChatMessage(role="user", content=text))
+                self.budget_notice(messages, steps)
                 continue
             replies: list[ChatMessage] = []
             submitted: tuple[Submission, int] | None = None
@@ -301,12 +310,24 @@ class _Run:
             except SandboxError as e:
                 return self.outcome("sandbox_error", steps, str(e))
             messages += replies
-            if submitted is not None:
+            if submitted is None:
+                self.budget_notice(messages, steps)
+            else:
                 sub, index = submitted
                 self.recorder.submission(sub, steps)
                 verification = await self.verify(sub, steps, index)
                 self.recorder.verification(verification)
                 return self.outcome("submitted", steps, submission=sub, verification=verification)
+
+    def budget_notice(self, messages: list[ChatMessage], steps: int) -> None:
+        """Append the fixed budget notice to the step's last message, which the
+        model has not seen yet, so the context stays append-only."""
+        left = self.s.max_steps - steps
+        if not 0 < left <= self.s.budget_warning_steps:
+            return
+        notice = LAST_TURN if left == 1 else BUDGET_LOW.format(n=left)
+        last = messages[-1]
+        messages[-1] = last.model_copy(update={"content": last.content + "\n" + notice})
 
     def outcome(
         self,
