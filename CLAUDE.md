@@ -10,8 +10,8 @@ local deterministic scorer, frozen split, SQLite run ledger, no-tools and
 inlined-files baselines, replay, and reports (`eval/kramabench/`). D1 is done
 (results in `docs/implementation-plan.md`). D3 is in progress: the sandbox
 runner (`ds_research_agent/sandbox/`: restricted container, derived seccomp
-profile, fail-closed read audit) exists; the package set, persistent kernel,
-and agent loop do not.
+profile, fail-closed read audit) and its hash-pinned package set exist; the
+persistent kernel and agent loop do not.
 Everything else is planned. Do not
 describe planned modules, tools, commands, evaluations, or integrations as
 implemented. Start with
@@ -57,7 +57,8 @@ uv run pytest -m live -s                 # local model + live rag-toolkit server
 # KramaBench at the pinned commit, split into agent-visible and evaluator stores
 uv run python -m eval.kramabench.fetch --config config/local.yaml fetch   # or verify
 uv run python scripts/measure_tool_calls.py --config config/local.yaml --out data/measurements/tool_calls.json
-uv run pytest -m docker                  # sandbox isolation and read audit; needs Docker
+uv run pytest -m docker                  # sandbox isolation, read audit, formats; needs Docker
+uv run python scripts/check_sandbox_formats.py --config config/local.yaml --out data/measurements/sandbox_formats.json  # every benchmark file, in the sandbox
 uv run python scripts/spike_read_audit/run.py --docker docker --out data/measurements/read_audit_spike.json  # needs Docker
 # D1: split (frozen by eval.split_sha256), baselines, replay, reports
 uv run python -m eval.kramabench.split --config config/local.yaml verify
