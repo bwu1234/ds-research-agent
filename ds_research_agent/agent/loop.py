@@ -3,8 +3,12 @@
 Each step is one model turn through the bounded tool-call repair policy;
 the conversation is append-only, so Ollama can reuse the cached prefix.
 ``run_python`` cells go to the workspace's persistent kernel and come back
-as bounded text. ``submit_answer`` is checked, then its program is rerun in
-a fresh sandbox and compared with ``reproduction-v1``. Budgets (steps, wall
+as bounded text. ``submit_answer`` is checked, then its program is run in a
+fresh sandbox. A program that fails or prints no answer line is returned to
+the model for a fix (at most ``submit_checks`` times, each costing a step);
+otherwise that run is the final rerun, compared with ``reproduction-v1`` and
+the read audit. Only whether the program runs is fed back: a reproduction or
+access mismatch is never revealed, so it stays final. Budgets (steps, wall
 clock) end the run with a stop reason and no answer; the loop never guesses.
 
 The loop never sees gold answers: scoring is the evaluator's job. Model
@@ -16,6 +20,7 @@ its client); programs, the submission, and the verification go to the
 from __future__ import annotations
 
 import asyncio
+import difflib
 import time
 from collections.abc import Callable, Sequence
 from typing import Any, Literal, Protocol
@@ -35,9 +40,12 @@ from ds_research_agent.agent.tools import (
     CUT_OFF,
     KERNEL_RESTARTED,
     LAST_TURN,
+    NO_PROGRESS,
     NO_TOOL_CALL,
     REPLAN,
+    SUBMIT_FAILED,
     TOOLS,
+    TRUNCATED,
 )
 from ds_research_agent.agent.workspace import Workspace
 from ds_research_agent.config import AgentSettings
@@ -60,16 +68,19 @@ class _Frozen(BaseModel):
 
 
 class ProgramEvent(_Frozen):
-    """One exploration cell or the final program's fresh rerun."""
+    """One exploration cell, a submitted program that failed its run and was
+    returned (``submit_check``), or the final program's fresh rerun."""
 
     seq: int
-    step: int  # the model step that called it; for the rerun, the submit step
+    step: int  # the model step that called it; for a rerun, the submit step
     call_index: int
-    kind: Literal["cell", "final_rerun"]
+    kind: Literal["cell", "submit_check", "final_rerun"]
     session: str | None
     code: str
     cell: CellResult | None = None
     run: SandboxRun | None = None
+    # The tool result asked for a change of approach: after a repeated error,
+    # or after repeated near-identical successful cells (no progress).
     replan_requested: bool = False
 
 
@@ -108,13 +119,15 @@ class Recorder(Protocol):
 def _head(text: str, limit: int, truncated: bool) -> str:
     if len(text) > limit:
         text, truncated = text[:limit], True
-    return text + ("\n[truncated]" if truncated else "")
+    note = TRUNCATED.format(part="first", limit=len(text))
+    return text + ("\n" + note if truncated else "")
 
 
 def _tail(text: str, limit: int, truncated: bool) -> str:
     if len(text) > limit:
         text, truncated = text[-limit:], True
-    return ("[truncated]\n" if truncated else "") + text
+    note = TRUNCATED.format(part="last", limit=len(text))
+    return (note + "\n" if truncated else "") + text
 
 
 def render_cell(cell: CellResult, limit: int) -> str:
@@ -137,6 +150,27 @@ def error_signature(cell: CellResult) -> str | None:
         return None
     lines = [line for line in (cell.traceback or "").splitlines() if line.strip()]
     return f"{cell.status}: {lines[-1].strip()}" if lines else cell.status
+
+
+def run_problem(run: SandboxRun) -> str | None:
+    """Why a submitted program's run gives no answer; None when it prints one."""
+    if run.timed_out:
+        return "timed out"
+    if run.exit_code != 0:
+        return f"exited with code {run.exit_code}"
+    if not program_answer(run.stdout)[0]:
+        return 'printed no {"answer": ...} JSON as its last line'
+    return None
+
+
+def render_run_output(run: SandboxRun, limit: int) -> str:
+    """The failed program's output tails, where the traceback or last line is."""
+    parts = []
+    if run.stdout or run.stdout_truncated:
+        parts.append("stdout:\n" + _tail(run.stdout.rstrip("\n"), limit, False))
+    if run.stderr or run.stderr_truncated:
+        parts.append("stderr:\n" + _tail(run.stderr.rstrip("\n"), limit, False))
+    return "\n".join(parts) or "(no output)"
 
 
 def _tool(name: str, content: str) -> ChatMessage:
@@ -163,6 +197,9 @@ class _Run:
         self.seq = 0
         self.last_error: str | None = None
         self.repeats = 0
+        self.checks = 0
+        self.last_code: str | None = None
+        self.same_code = 0
 
     def left(self) -> float:
         return self.s.max_wall_s - (self.clock() - self.start)
@@ -178,11 +215,15 @@ class _Run:
             self.repeats = 1 if sig is not None else 0
         self.last_error = sig
         replan = sig is not None and self.repeats >= self.s.replan_after_repeats
+        stuck = self.no_progress(code, cell)
         content = render_cell(cell, self.s.max_tool_output_chars)
         if not cell.kernel_alive:
             content += "\n" + KERNEL_RESTARTED.format(why=cell.status)
         if replan:
             content += "\n" + REPLAN.format(n=self.repeats)
+        elif stuck:
+            content += "\n" + NO_PROGRESS.format(n=self.same_code)
+        replan = replan or stuck
         self.recorder.program(
             ProgramEvent(
                 seq=self.seq,
@@ -198,15 +239,61 @@ class _Run:
         self.seq += 1
         return _tool("run_python", content)
 
-    async def verify(self, sub: Submission, step: int, index: int) -> Verification:
-        detail: list[str] = []
-        run: SandboxRun | None = None
+    def no_progress(self, code: str, cell: CellResult) -> bool:
+        """Count successful cells nearly identical to the one before; True from
+        ``no_progress_after_repeats`` such repeats in a row. Errors are the
+        re-plan rule's, so an error resets the count."""
+        prev, self.last_code = self.last_code, code
+        similar = (
+            cell.status == "ok"
+            and prev is not None
+            and difflib.SequenceMatcher(None, prev, code).ratio() >= self.s.no_progress_similarity
+        )
+        self.same_code = self.same_code + 1 if similar else 0
+        n = self.s.no_progress_after_repeats
+        return n > 0 and self.same_code >= n
+
+    async def rerun(self, program: str) -> tuple[SandboxRun | None, str | None]:
         try:
-            run = await self.workspace.rerun(sub.program)
+            return await self.workspace.rerun(program), None
         except SandboxUnavailable:
             raise
         except SandboxError as e:
-            detail.append(f"rerun failed in the sandbox: {e}")
+            return None, f"rerun failed in the sandbox: {e}"
+
+    async def try_submit(
+        self, sub: Submission, step: int, index: int
+    ) -> tuple[SandboxRun | None, str | None] | ChatMessage:
+        """Run the submitted program; a tool reply when it is returned for a fix."""
+        run, error = await self.rerun(sub.program)
+        problem = run_problem(run) if run is not None else None
+        if (
+            run is None
+            or problem is None
+            or self.checks >= self.s.submit_checks
+            or step >= self.s.max_steps  # no turn left to fix it: the run is final
+        ):
+            return run, error
+        self.checks += 1
+        self.recorder.program(
+            ProgramEvent(
+                seq=self.seq,
+                step=step,
+                call_index=index,
+                kind="submit_check",
+                session=run.container,
+                code=sub.program,
+                run=run,
+            )
+        )
+        self.seq += 1
+        output = render_run_output(run, self.s.max_tool_output_chars)
+        return _tool("submit_answer", SUBMIT_FAILED.format(problem=problem, output=output))
+
+    def verify(
+        self, sub: Submission, step: int, index: int, run: SandboxRun | None, error: str | None
+    ) -> Verification:
+        detail = [error] if error else []
         if run is not None:
             self.recorder.program(
                 ProgramEvent(
@@ -287,7 +374,7 @@ class _Run:
                 self.budget_notice(messages, steps)
                 continue
             replies: list[ChatMessage] = []
-            submitted: tuple[Submission, int] | None = None
+            submitted: tuple[Submission, int, SandboxRun | None, str | None] | None = None
             try:
                 for i, call in enumerate(calls):
                     if submitted is not None:
@@ -314,7 +401,11 @@ class _Run:
                             program=args["program"],
                             assumptions=tuple(args.get("assumptions", ())),
                         )
-                        submitted = (sub, i)
+                        tried = await self.try_submit(sub, steps, i)
+                        if isinstance(tried, ChatMessage):
+                            replies.append(tried)
+                        else:
+                            submitted = (sub, i, *tried)
             except SandboxUnavailable:
                 raise  # infrastructure, not the run: the batch stops, resumable
             except SandboxError as e:
@@ -323,9 +414,9 @@ class _Run:
             if submitted is None:
                 self.budget_notice(messages, steps)
             else:
-                sub, index = submitted
+                sub, index, run, error = submitted
                 self.recorder.submission(sub, steps)
-                verification = await self.verify(sub, steps, index)
+                verification = self.verify(sub, steps, index, run, error)
                 self.recorder.verification(verification)
                 return self.outcome("submitted", steps, submission=sub, verification=verification)
 

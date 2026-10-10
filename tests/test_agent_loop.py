@@ -24,7 +24,7 @@ from ds_research_agent.agent import (
 )
 from ds_research_agent.agent.answers import check_submission, program_answer, reproduces
 from ds_research_agent.agent.loop import render_cell
-from ds_research_agent.agent.tools import BUDGET_LOW, LAST_TURN, SANDBOX_PACKAGES
+from ds_research_agent.agent.tools import BUDGET_LOW, LAST_TURN, SANDBOX_PACKAGES, TRUNCATED
 from ds_research_agent.config import AgentSettings
 from ds_research_agent.models import (
     ChatMessage,
@@ -53,7 +53,10 @@ SETTINGS = AgentSettings(
     max_output_tokens=4096,
     max_tool_output_chars=50,
     replan_after_repeats=2,
+    no_progress_after_repeats=0,
+    no_progress_similarity=0.95,
     budget_warning_steps=0,
+    submit_checks=0,
     server_retries=1,
 )
 
@@ -87,7 +90,13 @@ def cell(status: str = "ok", stdout: str = "", tb: str | None = None, **kw: Any)
     )
 
 
-def rerun(stdout: str, reads: Sequence[str] = (F,), exit_code: int = 0, complete: bool = True):  # type: ignore[no-untyped-def]
+def rerun(  # type: ignore[no-untyped-def]
+    stdout: str,
+    reads: Sequence[str] = (F,),
+    exit_code: int = 0,
+    complete: bool = True,
+    stderr: str = "",
+):
     return SandboxRun(
         container="dsra-sbx-test",
         image_id="sha256:x",
@@ -95,7 +104,7 @@ def rerun(stdout: str, reads: Sequence[str] = (F,), exit_code: int = 0, complete
         timed_out=False,
         wall_s=0.5,
         stdout=stdout,
-        stderr="",
+        stderr=stderr,
         stdout_truncated=False,
         stderr_truncated=False,
         audit=audit(reads, complete),
@@ -145,9 +154,13 @@ class Script:
 
 class FakeWorkspace:
     def __init__(
-        self, cells: Sequence[CellResult | Exception] = (), final: SandboxRun | None = None
+        self,
+        cells: Sequence[CellResult | Exception] = (),
+        final: SandboxRun | None = None,
+        failing: Sequence[SandboxRun] = (),
     ) -> None:
         self.cells = list(cells)
+        self.failing = list(failing)  # returned by the first reruns, in order
         self.final = final or rerun('{"answer": 3}')
         self.executed: list[tuple[str, int]] = []
         self.reruns: list[str] = []
@@ -166,7 +179,7 @@ class FakeWorkspace:
 
     async def rerun(self, program: str) -> SandboxRun:
         self.reruns.append(program)
-        return self.final
+        return self.failing.pop(0) if self.failing else self.final
 
     async def close(self) -> list[SessionEnd]:
         self.closed = True
@@ -248,6 +261,49 @@ async def test_not_reproduced(final: SandboxRun, files: Sequence[str], why: str)
     out, _ = await go(Script(reply(submit(files=files))), FakeWorkspace(final=final))
     v = out.verification
     assert v is not None and not v.reproduced and any(why in d for d in v.detail)
+
+
+CRASH = rerun("", exit_code=1, stderr="Traceback...\nNameError: name 'json' is not defined")
+CHECKED = SETTINGS.model_copy(update={"submit_checks": 2})
+
+
+async def test_failing_program_is_returned_at_submit_and_can_be_fixed() -> None:
+    client = Script(reply(submit(program="bad")), reply(submit(program="good")))
+    ws = FakeWorkspace(failing=[CRASH])
+    out, rec = await go(client, ws, settings=CHECKED)
+    text = last_tool_text(client, 1)
+    assert text.startswith("Error: your program was run in a fresh sandbox and exited with code 1")
+    assert "Nothing was submitted" in text and "NameError: name 'json'" in text
+    assert out.stop_reason == "submitted" and out.steps == 2 and ws.reruns == ["bad", "good"]
+    assert [(p.kind, p.code) for p in rec.programs] == [
+        ("submit_check", "bad"),
+        ("final_rerun", "good"),
+    ]
+    assert len(rec.submissions) == 1 and out.verification and out.verification.reproduced
+
+
+async def test_missing_answer_line_is_returned_but_a_wrong_answer_is_not() -> None:
+    client = Script(reply(submit()), reply(submit()))
+    ws = FakeWorkspace(failing=[rerun("{'answer': 3}")], final=rerun('{"answer": 4}'))
+    out, rec = await go(client, ws, settings=CHECKED)
+    assert 'printed no {"answer": ...} JSON as its last line' in last_tool_text(client, 1)
+    # The mismatch is not revealed: the second submission is final.
+    assert out.steps == 2 and out.verification and not out.verification.reproduced
+    assert [p.kind for p in rec.programs] == ["submit_check", "final_rerun"]
+
+
+async def test_submit_checks_are_bounded_and_the_last_step_is_final() -> None:
+    one = CHECKED.model_copy(update={"submit_checks": 1})
+    client = Script(reply(submit()), reply(submit()))
+    out, rec = await go(client, FakeWorkspace(failing=[CRASH, CRASH]), settings=one)
+    assert out.steps == 2 and out.stop_reason == "submitted"
+    assert [p.kind for p in rec.programs] == ["submit_check", "final_rerun"]
+    assert out.verification and "rerun exited 1" in out.verification.detail
+    last = CHECKED.model_copy(update={"max_steps": 2})
+    client = Script(reply(py()), reply(submit()))
+    out, rec = await go(client, FakeWorkspace(failing=[CRASH]), settings=last)
+    assert out.stop_reason == "submitted" and out.submission is not None
+    assert [p.kind for p in rec.programs] == ["cell", "final_rerun"]
 
 
 async def test_access_needs_complete_audit_and_matching_claims() -> None:
@@ -341,6 +397,22 @@ async def test_repeated_error_demands_a_replan() -> None:
     assert [p.replan_requested for p in rec.programs if p.kind == "cell"] == [False, True, False]
 
 
+async def test_repeated_near_identical_cells_are_nudged() -> None:
+    nudged = SETTINGS.model_copy(update={"no_progress_after_repeats": 2, "max_steps": 8})
+    base = "df = load()\n" + "x = 1\n" * 40
+    codes = [base, base + "y = 2\n", base + "y = 3\n", "other()", base, base]
+    client = Script(*[reply(py(c)) for c in codes], reply(submit()))
+    ws = FakeWorkspace([cell(), cell(), cell(), cell(), cell(), cell("error", tb="E: x")])
+    _, rec = await go(client, ws, settings=nudged)
+    texts = [last_tool_text(client, i) for i in range(1, 7)]
+    assert "nearly identical to the 2 before it" in texts[2]
+    assert not any("nearly identical" in t for t in texts[:2] + texts[3:])
+    # A different cell resets the count, and an error is the re-plan rule's.
+    assert [p.replan_requested for p in rec.programs if p.kind == "cell"] == [
+        False, False, True, False, False, False,
+    ]  # fmt: skip
+
+
 async def test_dead_kernel_is_reported() -> None:
     client = Script(reply(py()), reply(submit()))
     await go(client, FakeWorkspace([cell("dead")]))
@@ -396,8 +468,9 @@ async def test_model_error_stops_the_run() -> None:
 def test_render_cell_truncates_stdout_head_and_traceback_tail() -> None:
     c = cell("error", stdout="a" * 60, tb="t" * 55 + "END")
     text = render_cell(c, 50)
-    assert "stdout:\n" + "a" * 50 + "\n[truncated]" in text
-    assert text.endswith("[truncated]\n" + "t" * 47 + "END")
+    assert "stdout:\n" + "a" * 50 + "\n" + TRUNCATED.format(part="first", limit=50) in text
+    assert text.endswith(TRUNCATED.format(part="last", limit=50) + "\n" + "t" * 47 + "END")
+    assert "Print a slice, a summary" in text
     assert render_cell(cell(), 50) == "[status: ok, no output]"
 
 
@@ -428,7 +501,7 @@ def test_prompt_prefix_is_pinned() -> None:
     assert hashlib.sha256(blob.encode()).hexdigest() == PINNED_PREFIX_SHA256
 
 
-PINNED_PREFIX_SHA256 = "77324115acd402b9f98d5eb2bfa78a224a2295998e76d4324676703098fd8352"
+PINNED_PREFIX_SHA256 = "7a9c3decb8f5f3c9ad8db5d179dfcc74f74c862388763999e31075109c950b52"
 
 
 def test_package_list_matches_the_image() -> None:

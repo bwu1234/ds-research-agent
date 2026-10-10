@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, and the 12-task sample done 2026-10-10); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, and the protocol fixes from it done 2026-10-10); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -847,7 +847,9 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     `reproduction-v1` (frozen): same JSON shape and order, strings equal,
     numbers within 1e-9 relative. Observed access needs a complete audit, at
     least one data read, and observed reads equal to `files_used`. Input
-    hashes and the catalogue side remain D4's.
+    hashes and the catalogue side remain D4's. Since (f), a program that
+    fails or prints no answer line in this run is first returned to the
+    model for a fix, up to `agent.submit_checks` times.
   - **Ledger schema 2.** New `programs` table (every cell and the final
     rerun, with the full result for replay), plus `submissions` and
     `verifications` tables. A schema-1 ledger is upgraded in place by adding
@@ -1018,9 +1020,76 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     two other models into Ollama, which evicted the 27b runner once (an
     11.6 s reload and a full re-evaluation of the prompt); no step of the
     resumed batch reloaded the model. Replay of the batch: 0 differences.
-  - **Not done:** the protocol changes these failures suggest (see the next
-    entry when made), the registered criteria for the paired comparison,
-    and the development split.
+  - **Not done:** the protocol changes these failures suggest (made in
+    (f)), the registered criteria for the paired comparison, and the
+    development split.
+- **(f) Protocol fixes from the sample, and its rerun, done 2026-10-10.**
+  Tuned on the development sample only; the holdout stays sealed.
+  - **Submit check.** At `submit_answer` the program runs in a fresh
+    sandbox before anything is recorded. If it exits non-zero, times out,
+    or prints no `{"answer": ...}` last line, the tool result returns the
+    problem and the output tails, nothing is submitted, and the model may
+    fix it, at most `agent.submit_checks` (2) times per run, each costing a
+    step; on the last step the submission is final. A passing run is the
+    final rerun (no second run). Only whether the program runs is fed
+    back: a reproduction mismatch or an access mismatch is never revealed
+    and stays final, so the access check still tests the agent's own
+    claim. Rejected attempts are ledger programs of kind `submit_check`,
+    replayed in order with the final rerun; reports count them as
+    `submissions_returned_for_fix`.
+  - **Prompt.** The program must carry all its imports, `json` included;
+    keep the sign of a signed result and give a magnitude only when the
+    question asks for one. Truncated tool output now says how many
+    characters are shown, that rerunning will not show more, and to print
+    a slice, a summary, or specific values. These change the cached prefix
+    (pinned hash updated), so batches before `-d3f` no longer replay.
+  - **Budgets.** `agent.max_steps` 12 to 20 and `agent.max_output_tokens`
+    4,096 to 8,192.
+  - **Rerun** (`given_files-sample-off-d3f`, otherwise as `-d3e`):
+
+    | Batch | Answer score | Strict | Verified | Submitted | Reproduced | Access | Median wall | Total wall |
+    |---|---|---|---|---|---|---|---|---|
+    | `-d3f` | 0.576 [0.409, 0.742] | 0.500 [0.333, 0.667] | 0.333 [0.167, 0.500] | 11 | 11 | 9 | 112 s | 76 min |
+    | `-d3e` | 0.409 [0.242, 0.576] | 0.333 [0.167, 0.500] | 0.167 | 9 | 6 | 7 | 130 s | 37 min |
+
+    Two tasks newly strict: one that had run out of turns (it submitted at
+    13 requests, past the old limit of 12) and one that had chosen the
+    other reading of an ambiguous denominator. None was lost. Twelve tasks
+    cannot establish that the change helps; the paired comparison on the
+    development split is where it counts.
+  - **What the fixes did.** The prompt line did not stop the missing
+    `import json`: two programs still omitted it, and the submit check
+    returned both, which were fixed on the next turn (one of them strictly
+    correct, and verified after the fix). Every submission reproduced. Of the two
+    access failures, one is a strictly correct run whose program hard-codes
+    numbers copied from earlier cell output and reads no file (the check
+    working as intended); the other again claims 2 of the 104 files its
+    program reads. The sign line half worked: one run kept a sign it had
+    dropped in `-d3e` but then rounded to 3 decimals unasked; the other
+    still reported a magnitude, reading "how many more" as asking for one.
+  - **Failure taxonomy** (6 failed, all labelled): `wrong_filter_or_join`
+    2, `formatting` 2, `budget_exhausted` 1, `other` 1. The one budget
+    stop is the modelling task: from about step 14 it re-sent a nearly
+    identical 8 KB cell each turn (successful cells, so the repeated-error
+    re-plan never fired) until the 20-step limit, taking 43 min, more than
+    half the batch's wall time.
+  - **No-progress nudge, added after the rerun.** A successful cell whose
+    code is at least `agent.no_progress_similarity` (0.95, difflib ratio)
+    similar to the cell before, for `agent.no_progress_after_repeats` (2)
+    such cells in a row, gets a fixed note asking for a change of approach
+    or a submission; it is recorded as `replan_requested`, like the
+    repeated-error re-plan. Thresholds set from both sample batches: among
+    all their consecutive cell pairs, only the stuck run has two in a row
+    at 0.95 or more, so on recorded cells it fires there alone, from step
+    15. Whether the model then changes course is not yet measured; the
+    tool-result text is not part of the cached prefix, but `-d3f` no
+    longer replays for that run.
+  - **Operations.** 11 of 12 runs within 15 requests; the report's step
+    model projects about 5.6 h for one repeat of the development split,
+    against about 2.7 h before, mostly from runs that now continue past
+    12 steps. Replay of the batch: 0 differences.
+  - **Not done:** the registered criteria for the paired comparison, and
+    the development split.
 
 ## D4 — End to end with provenance
 

@@ -41,12 +41,15 @@ rag_service:
 
 agent:
   tool_call_max_repairs: 2
-  max_steps: 12               # D3 sets these from the 12-task sample
+  max_steps: 20               # D3 sets these from the 12-task sample
   max_wall_s: 3600
-  max_output_tokens: 4096
+  max_output_tokens: 8192
   max_tool_output_chars: 4000
   replan_after_repeats: 2
+  no_progress_after_repeats: 2   # 3 near-identical successful cells in a row
+  no_progress_similarity: 0.95
   budget_warning_steps: 2
+  submit_checks: 2
   server_retries: 2
 
 sandbox:

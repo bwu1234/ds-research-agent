@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS programs (
     seq INTEGER NOT NULL,
     step INTEGER NOT NULL,
     call_index INTEGER NOT NULL,
-    kind TEXT NOT NULL,  -- cell | final_rerun
+    kind TEXT NOT NULL,  -- cell | submit_check | final_rerun | session_end
     session TEXT,
     code TEXT NOT NULL,
     status TEXT NOT NULL,  -- cell status, or the rerun's exit code as text
