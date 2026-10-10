@@ -182,6 +182,45 @@ condition receives oracle `data_sources`. Discovery scoring reads those labels
 in the evaluator. Gold sub-task prompting is a separate assisted diagnostic;
 model-generated decomposition is allowed in the main condition.
 
+## Specialization comparison and practical acceptance
+
+The three benchmark conditions diagnose this system; they do not establish
+that its custom loop is preferable to an existing agent. Add a D3 development
+comparison with a minimal general code-execution baseline: a question, labelled
+files, a generic analysis prompt, bounded Python execution and error feedback,
+and a final answer/program submission. It has no catalogue search or specialized
+re-plan policy. Freeze its prompt, tool contract, and retry policy before the
+paired run. It must be a credible execution baseline, not an intentionally
+underpowered single attempt.
+
+Use the same local model/settings, selected-file mounts, sandbox packages,
+answer visibility, scorer, and comparable wall/output/step budgets. Give both
+conditions the same required answer/program output contract and independently
+apply the same verifier to submitted programs. Record other differences rather
+than treating the comparison as a clean causal attribution. Share the trusted
+sandbox and evaluator where possible; this comparison tests loop/prompt
+specialization, not the need for the sandbox infrastructure itself. Reusing an
+existing compatible runner is preferred to building a second full agent. If
+only a thin local runner is feasible, label it a proxy and bound the claims;
+these results cannot establish superiority to ChatGPT or Codex.
+
+Before the paired development comparison, record numeric per-task and total
+run time limits, repeat count, the minimum worthwhile strict-accuracy gain,
+and the acceptable correctness/runtime tradeoff. Choose them from the intended
+local research use and available compute, not comparative outcome scores.
+Measure median and tail latency, all-task budget-failure rate, verifier time,
+and operator minutes spent preparing inputs, intervening, or reviewing each
+condition. Keep manual answer repairs outside autonomous scores and disclose
+all interventions; distinguish one-time setup from per-task effort.
+
+Report paired correctness differences with uncertainty and audit coverage
+separately. At D3, record continue, simplify, stop, or inconclusive against the
+registered criteria before catalogue expansion. At D4, apply the registered
+discovery/runtime criteria to end-to-end versus given-files results. Audit
+coverage can justify infrastructure for a stated requirement even without an
+accuracy gain, but does not establish adoption or the necessity of a custom
+loop. A negative or inconclusive finding remains a valid research result.
+
 ## Metrics
 
 | Layer | Measurements |

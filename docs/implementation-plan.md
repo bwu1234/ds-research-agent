@@ -8,6 +8,33 @@ acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 Success means a measured agent, a reproducible evaluation, and a write-up
 that reports results and limitations. Product adoption is not the goal.
 
+The research question is whether a specialized local data workflow improves
+correct, auditable task completion over a general code-execution workflow
+within practical budgets, and which components justify their complexity.
+A completed implementation or a gain over the no-tools baseline alone does
+not establish that a custom agent loop is necessary. A negative result that
+supports simplifying the system is a valid first-release outcome.
+
+### Remaining evidence gaps and decision gates
+
+These gates use development tasks only and precede catalogue expansion or
+final protocol freeze. They do not reopen D1 or require hosted model calls.
+
+| Gap | Work and dependency | Closure evidence and decision |
+|---|---|---|
+| Value of code execution and specialization | In D3, compare the given-files workflow with the existing inlined-files baseline and a minimal general code-execution baseline. Use the same local model, labelled inputs, package image, scorer, and comparable budgets; define the comparator in evaluation-plan.md. | Paired correctness, runtime, and manual-effort results. A gain over inlined text supports execution, not necessarily the custom loop. Comparable results from the minimal baseline support reusing or simplifying the loop. |
+| Practical usefulness | Before D3's paired development comparison, register numeric task/run time limits, repeat count, the smallest correctness gain considered worthwhile, and the acceptable correctness/runtime tradeoff. Report budget failures and evaluator/operator effort. | A recorded continue, simplify, or stop decision against those criteria, with uncertainty. Do not select thresholds after seeing comparative results or use a small smoke sample as proof of superiority. |
+| Contribution of discovery and provenance | After D3's analysis gate, use D2/D4 to measure complete-set retrieval and end-to-end correctness against given-files analysis. Measure provenance coverage, verification failures, and verifier overhead separately. | State whether discovery retains enough analysis success within the registered budget and which audit requirements the system demonstrably enforces. Reproduction is not proof of semantic correctness; audit completeness is not proof of demand. |
+
+If D3 shows little useful analysis within the declared budget, diagnose the
+failures and prefer a bounded simplification or model/budget experiment before
+expanding the catalogue. If uncertainty prevents a conclusion, use a declared
+additional development-run budget or report the result as inconclusive. If a
+suitable general-agent runner cannot use the local model and enforced mounts,
+label the minimal comparator as a proxy; do not claim parity with or superiority
+to ChatGPT or Codex. Hosted product comparisons and product-demand validation
+remain separate optional work.
+
 Given a question and a collection of messy data files, the agent:
 
 1. **Discovers** the relevant files by searching a catalogue of dataset cards
