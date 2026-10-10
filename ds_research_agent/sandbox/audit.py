@@ -86,16 +86,23 @@ def _ret(line: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def observe(out: WrapperOutput, *, timed_out: bool, data_root: str = DATA_ROOT) -> AuditResult:
+def observe(
+    out: WrapperOutput, *, timed_out: bool, data_root: str = DATA_ROOT, cell_slice: bool = False
+) -> AuditResult:
+    """Observed access for a whole run, or for one kernel cell's trace slice.
+
+    A cell slice has no end marker and may contain no lines; completeness of
+    the whole session is judged on the merged trace.
+    """
     issues: list[str] = []
     reads: set[str] = set()
     dirs: set[str] = set()
     failed: list[str] = []
     blocked: list[str] = []
     unparsed = 0
-    if "end" not in out.meta:
+    if not cell_slice and "end" not in out.meta:
         issues.append("wrapper output truncated (no end marker)")
-    if not out.traces:
+    if not cell_slice and not out.traces:
         issues.append("no traced processes")
     if timed_out:
         issues.append("timed out: processes outlived the tracer")

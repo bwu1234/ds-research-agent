@@ -8,13 +8,13 @@ reproduces. It uses [rag-toolkit](https://github.com/bwu1234/rag-toolkit) as
 an MCP search service over dataset cards, and a local `qwen3.8:27b-mlx` model
 through Ollama.
 
-**Status: D0 and D1 done; D3 in progress (sandbox runner done).** A Python scaffold with configuration, a model
+**Status: D0 and D1 done; D3 in progress (sandbox, packages, and kernel done).** A Python scaffold with configuration, a model
 client, an MCP retrieval adapter, a dataset-card profiler with a synthetic
 fixture index, a tool-call repair policy, a pinned KramaBench fetch script,
 a read-audit spike, and a D1 evaluation harness (local deterministic scorer,
 frozen split, run ledger, no-tools and inlined-files baselines), and a
-sandbox runner (restricted container with a trusted read audit) exist.
-There is no agent loop or persistent kernel yet.
+sandbox runner and persistent kernel session (restricted container with a
+trusted read audit) exist. There is no agent loop yet.
 
 ## Example task
 

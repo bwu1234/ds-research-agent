@@ -99,10 +99,11 @@ sandbox must:
   observations fail provenance verification. Record observation failures.
 - Keep one persistent Python kernel per run for exploration, so parsed data
   survives between `run_python` calls. Read auditing covers the kernel for its
-  whole life, not just individual calls. The verifier never reuses it.
+  whole life, not just individual calls. The verifier never reuses it. (Implemented as `KernelSession`: a trusted bridge relays cells over the
+  container's stdio to a kernel traced for its whole life.)
 
 The sandbox is a restricted Docker container (decided in D3; implemented in
-`ds_research_agent/sandbox/`, persistent kernel still to come). Container
+`ds_research_agent/sandbox/`, with the persistent kernel). Container
 defaults alone do not establish these properties; `tests/sandbox/` checks
 them against real containers. A
 plain subprocess on the host does not meet the requirements. On macOS, Docker

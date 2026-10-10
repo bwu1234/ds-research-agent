@@ -27,6 +27,9 @@ def runner(tmp_path_factory: pytest.TempPathFactory) -> SandboxRunner:
         pids_limit=64,
         tmp_mb=16,
         max_output_chars=2_000,
+        cell_timeout_s=5,
+        session_timeout_s=120,
+        interrupt_grace_s=3,
     )
     r = SandboxRunner(settings)
     r.build_image()

@@ -13,8 +13,8 @@ RUN apt-get update \
       -r /opt/sandbox/requirements.txt \
  && pip check \
  && useradd --uid 1000 --no-create-home --shell /usr/sbin/nologin agent
-COPY entrypoint.sh /opt/sandbox/entrypoint.sh
-RUN chmod 0755 /opt/sandbox/entrypoint.sh
+COPY entrypoint.sh bridge.py kernel.py /opt/sandbox/
+RUN chmod 0755 /opt/sandbox/entrypoint.sh && chmod 0644 /opt/sandbox/bridge.py /opt/sandbox/kernel.py
 ENV HOME=/scratch \
     LANG=C.UTF-8 \
     MPLCONFIGDIR=/tmp \
