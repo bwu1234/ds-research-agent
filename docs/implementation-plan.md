@@ -624,7 +624,7 @@ agentic version are reported with their time cost.
   missing package is a hard capability limit. Record the package list with the
   image and check each format in the inventory loads.
 - Loop controls: trimmed tracebacks, bounded outputs, and a forced re-plan
-  when the same error repeats. `submit_answer` uses a schema per answer type,
+  when the same error repeats. `submit_answer` uses a schema per answer type (superseded: one union schema, since `answer_type` is hidden; see D3 progress),
   and the agent runs a sanity check before submitting: magnitude, units, row
   counts after filtering, and nulls.
 - A run replay command that renders one run from the ledger (turns, programs,
@@ -786,6 +786,60 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
   - `tests/sandbox/test_kernel.py` (marker `docker`, 14 tests). Measured
     (Docker Desktop, 5 sessions): start 0.16 s median, a trivial cell's round
     trip 1 ms median (3 ms max), close 0.14 s.
+- **(d1) Agent loop, done 2026-10-10; not yet run with the model**
+  (`ds_research_agent/agent/`: `loop.py`, `tools.py`, `answers.py`,
+  `workspace.py`). The KramaBench `given_files` condition, agent-run replay,
+  and the first live run are step (d2).
+  - **Loop.** Each step is one model turn through the D0 repair policy.
+    `run_python` runs in the persistent kernel, and the result comes back as
+    bounded text: stdout keeps its head, stderr and the traceback keep their
+    tail, each capped by `agent.max_tool_output_chars`. The context is
+    append-only: system prompt, tool schemas, and every earlier message are
+    never rewritten (a test checks each request extends the previous one).
+    A reply with no tool call, or one cut off at the output cap, gets a fixed
+    nudge and counts as a step. When the same error repeats
+    `replan_after_repeats` times, the tool result asks for a short plan
+    before more code. A dead kernel is restarted with the same scratch, and
+    the model is told its state was lost.
+  - **Budgets and stop reasons.** `agent.max_steps` (repairs do not count),
+    `agent.max_wall_s` (each cell's timeout is capped by the time left), and
+    `agent.max_output_tokens` per request. Stop reasons: `submitted`,
+    `max_steps`, `max_wall`, `tool_call_failure` (repairs exhausted),
+    `model_error`, `sandbox_error`. Only `submitted` carries an answer.
+  - **Submission.** `submit_answer` takes the answer, `files_used`, a
+    self-contained `program` that must print `{"answer": ...}` as its last
+    line, and optional `assumptions` (the stated-interpretation candidate,
+    recorded only). Because `answer_type` is hidden from the agent (decided
+    in D1), there is one union schema (number, string, or list of either),
+    not a schema per answer type as the D3 bullet above assumed. A submission
+    naming files not given for the task, an empty program, a non-finite
+    number, or an empty list is returned as a tool error and can be fixed.
+  - **Verification at submission.** The program is rerun in a fresh
+    container with empty scratch and the same inputs. Reproduction uses
+    `reproduction-v1` (frozen): same JSON shape and order, strings equal,
+    numbers within 1e-9 relative. Observed access needs a complete audit, at
+    least one data read, and observed reads equal to `files_used`. Input
+    hashes and the catalogue side remain D4's.
+  - **Ledger schema 2.** New `programs` table (every cell and the final
+    rerun, with the full result for replay), plus `submissions` and
+    `verifications` tables. A schema-1 ledger is upgraded in place by adding
+    them. Checked on a copy of the D1 ledger: 17 batches and 318 runs read
+    back unchanged. Code at schema 1 refuses an upgraded ledger.
+  - **Prompt.** The system prompt and tool schemas are byte-stable and
+    pinned by a hash test, so a change is deliberate (it invalidates replays
+    and the cached prefix). The prompt names the image's packages, and a test
+    keeps that list equal to `requirements.in`.
+  - **Tests.** `tests/test_agent_loop.py` (offline, 22): every stop reason,
+    nudges, re-plan, kernel restart, cell timeout capped by wall time left,
+    submission checks, the comparator, and truncation.
+    `tests/test_ledger_programs.py` (offline, 3).
+    `tests/sandbox/test_agent_workspace.py` (marker `docker`, 7, scripted
+    model with a real kernel and rerun): explore then submit verifies; state
+    persists across steps; a dead kernel restarts with fresh state; a program
+    that relies on scratch from exploration fails reproduction. Limits, as
+    the acceptance asks: a wrong calculation and a hard-coded answer that
+    still reads the file both reproduce and pass observed access (only the
+    evaluator catches them), and a program that reads nothing fails access.
 
 ## D4 — End to end with provenance
 

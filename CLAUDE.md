@@ -11,7 +11,9 @@ inlined-files baselines, replay, and reports (`eval/kramabench/`). D1 is done
 (results in `docs/implementation-plan.md`). D3 is in progress: the sandbox
 runner (`ds_research_agent/sandbox/`: restricted container, derived seccomp
 profile, fail-closed read audit), its hash-pinned package set, and the
-persistent kernel session exist; the agent loop does not.
+persistent kernel session exist, and so does the given-files agent loop
+(`ds_research_agent/agent/`, tested offline and with a scripted model, not yet
+run with the real model or wired into the KramaBench harness).
 Everything else is planned. Do not
 describe planned modules, tools, commands, evaluations, or integrations as
 implemented. Start with

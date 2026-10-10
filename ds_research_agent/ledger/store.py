@@ -2,9 +2,11 @@
 
 One database holds evaluation batches (one condition and configuration over a
 task set), runs (one task attempt), steps (one model request each), answers,
-and scores. It quotes prompts, model output, and inlined data, so it lives
-under the ignored ``data/`` tree and is never committed. Program and
-Verification records arrive with the sandbox (D3) and verifier (D4).
+and scores, and for agent runs (schema 2, D3) programs (exploration cells and
+the final program's fresh rerun), the submission, and its verification. It
+quotes prompts, model output, data, and program output, so it lives under the
+ignored ``data/`` tree and is never committed. A schema-1 ledger is upgraded
+in place by adding the schema-2 tables.
 
 Timestamps are timezone-aware UTC ISO strings. JSON columns hold canonical
 JSON (sorted keys) so equal values compare equal as text.
@@ -22,7 +24,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -104,6 +106,48 @@ CREATE TABLE IF NOT EXISTS scores (
     verified_success INTEGER,
     scored TEXT NOT NULL,
     PRIMARY KEY (run_id, profile)
+);
+"""
+
+# Schema 2 (D3): agent runs. Additive, so schema-1 ledgers upgrade in place.
+_SCHEMA_2 = """
+CREATE TABLE IF NOT EXISTS programs (
+    run_id TEXT NOT NULL REFERENCES runs(run_id),
+    seq INTEGER NOT NULL,
+    step INTEGER NOT NULL,
+    call_index INTEGER NOT NULL,
+    kind TEXT NOT NULL,  -- cell | final_rerun
+    session TEXT,
+    code TEXT NOT NULL,
+    status TEXT NOT NULL,  -- cell status, or the rerun's exit code as text
+    wall_s REAL,
+    audit_complete INTEGER NOT NULL,
+    observed_reads_json TEXT NOT NULL,
+    replan_requested INTEGER NOT NULL DEFAULT 0,
+    -- The full CellResult or SandboxRun, for replay and failure analysis.
+    record_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, seq)
+);
+CREATE TABLE IF NOT EXISTS submissions (
+    run_id TEXT PRIMARY KEY REFERENCES runs(run_id),
+    step INTEGER NOT NULL,
+    value_json TEXT,
+    files_used_json TEXT NOT NULL,
+    program TEXT NOT NULL,
+    assumptions_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS verifications (
+    run_id TEXT PRIMARY KEY REFERENCES runs(run_id),
+    comparator TEXT NOT NULL,
+    rerun_exit_code INTEGER,
+    rerun_answered INTEGER NOT NULL,
+    rerun_answer_json TEXT,
+    reproduced INTEGER NOT NULL,
+    audit_complete INTEGER NOT NULL,
+    observed_files_json TEXT NOT NULL,
+    claimed_files_json TEXT NOT NULL,
+    access_verified INTEGER NOT NULL,
+    detail_json TEXT NOT NULL
 );
 """
 
@@ -189,6 +233,45 @@ class Answer(_Row):
     abstained: bool = False
 
 
+class Program(_Row):
+    run_id: str
+    seq: int
+    step: int
+    call_index: int
+    kind: str
+    session: str | None
+    code: str
+    status: str
+    wall_s: float | None
+    audit_complete: bool
+    observed_reads: list[str]
+    replan_requested: bool = False
+    record: dict[str, Any]
+
+
+class SubmissionRow(_Row):
+    run_id: str
+    step: int
+    value: Any
+    files_used: list[str]
+    program: str
+    assumptions: list[str]
+
+
+class VerificationRow(_Row):
+    run_id: str
+    comparator: str
+    rerun_exit_code: int | None
+    rerun_answered: bool
+    rerun_answer: Any
+    reproduced: bool
+    audit_complete: bool
+    observed_files: list[str]
+    claimed_files: list[str]
+    access_verified: bool
+    detail: list[str]
+
+
 class Score(_Row):
     run_id: str
     profile: str
@@ -208,14 +291,24 @@ _JSON_COLS = {
     "request": "request_json",
     "response": "response_json",
     "value": "value_json",
+    "observed_reads": "observed_reads_json",
+    "record": "record_json",
+    "files_used": "files_used_json",
+    "assumptions": "assumptions_json",
+    "rerun_answer": "rerun_answer_json",
+    "observed_files": "observed_files_json",
+    "claimed_files": "claimed_files_json",
+    "detail": "detail_json",
 }
+# JSON columns where a JSON null is a value, not a missing one.
+_NULLABLE_VALUES = {"value", "rerun_answer"}
 
 
 def _to_row(rec: _Row) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for k, v in rec.model_dump(mode="json").items():
         if k in _JSON_COLS:
-            out[_JSON_COLS[k]] = None if v is None and k != "value" else canonical(v)
+            out[_JSON_COLS[k]] = None if v is None and k not in _NULLABLE_VALUES else canonical(v)
         elif isinstance(v, bool):
             out[k] = int(v)
         else:
@@ -248,12 +341,12 @@ class Ledger:
         self._db.execute("PRAGMA journal_mode = WAL")
         self._db.executescript(_SCHEMA)
         row = self._db.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
-        if row is None:
-            self._db.execute(
-                "INSERT INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
-            )
-        elif int(row[0]) != SCHEMA_VERSION:
+        if row is not None and int(row[0]) not in (1, SCHEMA_VERSION):
             raise LedgerError(f"{path}: schema {row[0]}, expected {SCHEMA_VERSION}")
+        self._db.executescript(_SCHEMA_2)
+        self._db.execute(
+            "INSERT OR REPLACE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
+        )
 
     def close(self) -> None:
         self._db.close()
@@ -298,7 +391,9 @@ class Ledger:
         ).fetchall()
         with self.transaction():
             for run_id, _ in rows:
-                for table in ("scores", "answers", "steps", "runs"):
+                for table in (
+                    "verifications", "submissions", "programs", "scores", "answers", "steps", "runs"
+                ):  # fmt: skip
                     self._db.execute(f"DELETE FROM {table} WHERE run_id = ?", (run_id,))
         return [key for _, key in rows]
 
@@ -342,3 +437,26 @@ class Ledger:
             "SELECT * FROM scores WHERE run_id = ? AND profile = ?", (run_id, profile)
         ).fetchone()
         return None if row is None else _from_row(Score, row)
+
+    def add_program(self, p: Program) -> None:
+        self._insert("programs", p)
+
+    def put_submission(self, sub: SubmissionRow) -> None:
+        self._insert("submissions", sub, replace=True)
+
+    def put_verification(self, v: VerificationRow) -> None:
+        self._insert("verifications", v, replace=True)
+
+    def programs(self, run_id: str) -> list[Program]:
+        rows = self._db.execute(
+            "SELECT * FROM programs WHERE run_id = ? ORDER BY seq", (run_id,)
+        ).fetchall()
+        return [_from_row(Program, r) for r in rows]
+
+    def submission(self, run_id: str) -> SubmissionRow | None:
+        row = self._db.execute("SELECT * FROM submissions WHERE run_id = ?", (run_id,)).fetchone()
+        return None if row is None else _from_row(SubmissionRow, row)
+
+    def verification(self, run_id: str) -> VerificationRow | None:
+        row = self._db.execute("SELECT * FROM verifications WHERE run_id = ?", (run_id,)).fetchone()
+        return None if row is None else _from_row(VerificationRow, row)
