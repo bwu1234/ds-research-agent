@@ -75,6 +75,7 @@ scripts/run_d1.sh config/local.yaml > data/runs/d1.log 2>&1   # all D1 model run
 uv run python -m eval.kramabench.run --config config/local.yaml run --condition given_files --tasks smoke --think off
 uv run python -m eval.kramabench.run --config config/local.yaml failures --batch <id>   # rule labels, list failed runs
 uv run python -m eval.kramabench.run --config config/local.yaml show --run <run_id>     # one run with its gold answer; local only
+uv run python -m eval.kramabench.run --config config/local.yaml compare --batch <base> --batch <other> --subset untuned   # D3 primary: the 41 untuned dev tasks (--subset sample: the 12)
 ```
 
 The holdout is sealed: `run --tasks holdout` needs `--unseal-holdout`, which

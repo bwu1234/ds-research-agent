@@ -338,14 +338,27 @@ def cmd_report(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def cmd_compare(args: argparse.Namespace, settings: Settings) -> int:
-    _, tasks = frozen_split(settings)
+    split, tasks = frozen_split(settings)
     ledger = Ledger(settings.eval.ledger_path)
     base = ledger.batch(args.batch[0])
     ev = settings.eval
+    sample = set(split.sample)
+    keys = {
+        "all": None,
+        "untuned": [k for k in base.task_keys if k not in sample],
+        "sample": [k for k in base.task_keys if k in sample],
+    }[args.subset]
     for bid in args.batch[1:]:
         out = report.compare(
-            ledger, base, ledger.batch(bid), tasks, ev.bootstrap_resamples, ev.bootstrap_seed
+            ledger,
+            base,
+            ledger.batch(bid),
+            tasks,
+            ev.bootstrap_resamples,
+            ev.bootstrap_seed,
+            keys=keys,
         )
+        out["subset"] = args.subset
         print(json.dumps(out, indent=2))
     return 0
 
@@ -445,6 +458,14 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("replay", "score", "report", "compare", "choose-think"):
         p = sub.add_parser(name)
         p.add_argument("--batch", action="append", required=True)
+        if name == "compare":
+            p.add_argument(
+                "--subset",
+                choices=("all", "untuned", "sample"),
+                default="all",
+                help="tasks to pair: all, all but the 12-task tuning sample (the "
+                "registered D3 primary result), or the sample alone",
+            )
     sub.add_parser("list")
     f = sub.add_parser("failures")
     f.add_argument("--batch", action="append", required=True)

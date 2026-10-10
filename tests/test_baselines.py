@@ -229,10 +229,26 @@ def test_replay_refuses_a_changed_request(tmp_path: Path) -> None:
 def test_missing_runs_count_as_zero_and_paired_compare(tmp_path: Path) -> None:
     s, h = _harness(tmp_path)
     keys = h.split.dev
+    sample = h.split.sample
+    assert sample and len(sample) < len(keys)
     base = _run(h, "no_tools", keys, {k: "prose" for k in keys})
-    good = _run(h, "inline", keys, {})
-    out = report.compare(h.ledger, h.ledger.batch(base), h.ledger.batch(good), h.tasks, 200, 0)
-    assert out["score"]["diff"] == 1.0 and out["score"]["diff_ci95"] == [1.0, 1.0]
+    # Right on every task except the sample, so each subset has its own difference.
+    good = _run(h, "inline", keys, {k: "prose" for k in sample})
+    b, g = h.ledger.batch(base), h.ledger.batch(good)
+    rest_keys = [k for k in keys if k not in sample]
+    out = report.compare(h.ledger, b, g, h.tasks, 200, 0)
+    assert (out["tasks"], out["of_tasks"]) == (len(keys), len(keys))
+    assert out["score"]["diff"] == pytest.approx(round(len(rest_keys) / len(keys), 4))
+    rest = report.compare(h.ledger, b, g, h.tasks, 200, 0, keys=rest_keys)
+    assert rest["tasks"] == len(rest_keys)
+    assert rest["score"]["diff"] == 1.0 and rest["score"]["diff_ci95"] == [1.0, 1.0]
+    tuned = report.compare(h.ledger, b, g, h.tasks, 200, 0, keys=sample)
+    assert tuned["tasks"] == len(sample)
+    assert tuned["strict"]["diff"] == 0.0 and tuned["strict"]["diff_ci95"] == [0.0, 0.0]
+    with pytest.raises(ValueError, match="no tasks"):
+        report.compare(h.ledger, b, g, h.tasks, 200, 0, keys=[])
+    with pytest.raises(ValueError, match="outside"):
+        report.compare(h.ledger, b, g, h.tasks, 200, 0, keys=["nope/x"])
     # A planned task with no run row still counts in the denominator.
     partial = new_batch(
         s, h.model, h.split, condition="inline", task_set="dev", keys=keys, repeats=1,

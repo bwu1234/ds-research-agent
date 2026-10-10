@@ -13,7 +13,7 @@ from __future__ import annotations
 import random
 import statistics
 from collections import Counter, defaultdict
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -258,12 +258,25 @@ def compare(
     tasks: dict[str, Task],
     resamples: int,
     seed: int,
+    keys: Collection[str] | None = None,
 ) -> dict[str, Any]:
-    """Paired difference ``other - base`` over their shared tasks."""
+    """Paired difference ``other - base`` over their shared tasks, or over
+    ``keys`` among them (D3: the untuned tasks, then the tuning sample)."""
     if set(base.task_keys) != set(other.task_keys):
         raise ValueError("batches cover different tasks; a paired comparison needs the same set")
-    ob, oo = outcomes(ledger, base, tasks), outcomes(ledger, other, tasks)
-    out: dict[str, Any] = {"base": base.batch_id, "other": other.batch_id}
+    keep = set(base.task_keys) if keys is None else set(keys)
+    if not keep <= set(base.task_keys):
+        raise ValueError("keys outside the batches' tasks")
+    if not keep:
+        raise ValueError("no tasks to compare")
+    ob = [o for o in outcomes(ledger, base, tasks) if o.key in keep]
+    oo = [o for o in outcomes(ledger, other, tasks) if o.key in keep]
+    out: dict[str, Any] = {
+        "base": base.batch_id,
+        "other": other.batch_id,
+        "tasks": len(keep),
+        "of_tasks": len(base.task_keys),
+    }
     for field in ("score", "strict"):
         b, o = per_task(ob, field), per_task(oo, field)
         ci = bootstrap([b, o], ob, resamples, seed)[2]
