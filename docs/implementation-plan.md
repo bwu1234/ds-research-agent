@@ -1219,7 +1219,10 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     (`codeagent-smoke-off-20261011T014550`, 2 tasks: one submitted,
     reproduced, and access-verified in 110 s; one hit `max_steps` after 20
     cells, the last three identical; replay 0 differences over 28
-    requests). Two tasks say nothing about accuracy.
+    requests). Two tasks say nothing about accuracy. A later fix to the
+    `setup` cell (array answers failed to serialize: `.item()` was tried
+    before `.tolist()`) changed its code, so that batch now stops replaying
+    at its first cell, as replay should for changed code.
   - **Found: Ollama 0.35.1's MLX runner ignores `stop`** (chat and generate
     APIs; the GGUF runner honours it; `qwen3.5:4b` and `qwen3.5:4b-mlx`
     compared). CodeAgent depends on stopping at `</code>`: without it the

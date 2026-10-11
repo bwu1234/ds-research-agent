@@ -104,8 +104,8 @@ class _FinalAnswer(BaseException):
 def final_answer(answer, files_used, program, assumptions=None):
     import json as _json
 
-    def _plain(v):
-        return v.item() if hasattr(v, "item") else v.tolist() if hasattr(v, "tolist") else str(v)
+    def _plain(v):  # tolist first: arrays and Series have an item() that fails past one element
+        return v.tolist() if hasattr(v, "tolist") else v.item() if hasattr(v, "item") else str(v)
 
     raise _FinalAnswer({MARKER!r} + _json.dumps(
         {{"answer": answer, "files_used": files_used, "program": program,
@@ -324,8 +324,9 @@ class RecordedModel(Model):  # type: ignore[misc]
                 ValueError("request outside this condition's fixed settings")
             )
         try:
+            given: list[SmolMessage | dict[str, Any]] = list(messages)
             flat = get_clean_message_list(
-                messages, role_conversions=tool_role_conversions, flatten_messages_as_text=True
+                given, role_conversions=tool_role_conversions, flatten_messages_as_text=True
             )
             ours = [ChatMessage(role=m["role"], content=m["content"]) for m in flat]
         except Exception as e:

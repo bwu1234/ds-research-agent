@@ -63,11 +63,19 @@ async def test_final_answer_round_trips_through_the_kernel(runner: SandboxRunner
             "program": PROGRAM,
             "assumptions": ["semicolon separated"],
         }
+        # Arrays, Series, and numpy scalars inside lists all become JSON lists and numbers.
+        out = await call(
+            f"final_answer(answer=np.array([1.5, 2.5]), files_used=pd.Series([{A!r}]),"
+            " program='p', assumptions=[np.float64(0.5)])"
+        )
+        assert out.is_final_answer
+        assert out.output["answer"] == [1.5, 2.5] and out.output["files_used"] == [A]
+        assert out.output["assumptions"] == [0.5]
         # Past the bridge's traceback limit (2,000 chars in these settings):
         # an error for the model, not a truncated submission.
         with pytest.raises(_CellFailed):
             await call(f"final_answer(answer=1, files_used=[{A!r}], program='x' * 5000)")
-        assert [e.kind for e in rec.events] == ["setup", "cell", "cell", "cell", "cell"]
+        assert [e.kind for e in rec.events] == ["setup"] + ["cell"] * 5
         assert len({e.session for e in rec.events}) == 1  # setup once per session
 
         sub = Submission(answer=5, files_used=(A,), program=PROGRAM, assumptions=())
