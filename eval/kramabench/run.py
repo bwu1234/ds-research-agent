@@ -268,7 +268,10 @@ def cmd_replay(args: argparse.Namespace, settings: Settings) -> int:
     model = ModelSettings.model_validate(orig.model_settings)
     if canonical(orig.config.get("eval")) != canonical(settings.eval.model_dump(mode="json")):
         print("warning: eval settings differ from the recorded batch", file=sys.stderr)
-    steps = {(r.task_key, r.repeat): ledger.steps(r.run_id) for r in ledger.runs(orig.batch_id)}
+    orig_runs = {(r.task_key, r.repeat): r for r in ledger.runs(orig.batch_id)}
+    steps = {k: ledger.steps(r.run_id) for k, r in orig_runs.items()}
+    # Replay cannot reach a wall-clock limit; these runs replay theirs from the recording.
+    at_deadline = {k for k, r in orig_runs.items() if r.stop_reason == "max_wall"}
     replay = new_batch(
         settings,
         model,
@@ -285,20 +288,18 @@ def cmd_replay(args: argparse.Namespace, settings: Settings) -> int:
     h = Harness(settings, model, ledger, split, tasks)
 
     def client_for(t: Task, r: int) -> ReplayClient:
-        return ReplayClient(model, steps.get((t.key, r), []))
+        return ReplayClient(model, steps.get((t.key, r), []), (t.key, r) in at_deadline)
 
     agent_task: AgentTask | None = None
     if orig.condition in PROGRAM_CONDITIONS:
-        orig_runs = {(r.task_key, r.repeat): r for r in ledger.runs(orig.batch_id)}
 
         async def agent_task(h: Harness, b: Batch, t: Task, r: int, client: Any) -> Any:
             o = orig_runs[(t.key, r)]
             progs = ledger.programs(o.run_id)
             image = o.input_manifest.get("sandbox_image")
             run_task = AGENT_TASKS[orig.condition][0]
-            return await run_task(
-                h, b, t, r, client, lambda *_: agent_runs.ReplayWorkspace(progs), image
-            )
+            ws = agent_runs.ReplayWorkspace(progs, (t.key, r) in at_deadline)
+            return await run_task(h, b, t, r, client, lambda *_: ws, image)
 
     asyncio.run(run_batch(h, replay, client_for, agent_task=agent_task))
     diffs = []

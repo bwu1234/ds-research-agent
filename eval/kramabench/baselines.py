@@ -323,17 +323,29 @@ class ReplayMismatch(RuntimeError):
 class ReplayClient:
     """Returns one run's recorded responses in order, refusing any request
     whose hash differs from the recorded one (a changed prompt, model
-    setting, or tool schema)."""
+    setting, or tool schema).
 
-    def __init__(self, model: ModelSettings, steps: Sequence[Step]) -> None:
+    A replay takes seconds, so a run's wall-clock limit never fires in it.
+    For a run recorded as stopping at that limit (``ends_at_deadline``), the
+    limit is replayed where the recording shows it: a request cancelled in
+    flight (no response and no error recorded) or a request past the last
+    recorded step raises ``TimeoutError``, which the agent loops map to
+    ``max_wall`` as they do live."""
+
+    def __init__(
+        self, model: ModelSettings, steps: Sequence[Step], ends_at_deadline: bool = False
+    ) -> None:
         self._model = model
         self._steps = list(steps)
         self._i = 0
+        self._deadline = ends_at_deadline
 
     async def chat(
         self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = ()
     ) -> ChatResult:
         if self._i >= len(self._steps):
+            if self._deadline:
+                raise TimeoutError("the recorded run reached its wall-clock limit here")
             raise ReplayMismatch("more requests than recorded steps")
         step = self._steps[self._i]
         self._i += 1
@@ -343,6 +355,8 @@ class ReplayClient:
                 f"step {step.seq}: request {got} != recorded {step.request_sha256}"
             )
         if step.response is None:
+            if step.error is None and self._deadline:
+                raise TimeoutError("the recorded request was cut off by the wall-clock limit")
             err = step.error or "model_error: no response recorded"
             if err.startswith("timeout"):
                 raise TimeoutError(err)
