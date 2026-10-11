@@ -232,9 +232,14 @@ class LedgerRecorder:
 
 class ReplayWorkspace:
     """Returns one run's recorded cells, rerun, and session ends, refusing
-    code that differs from what was recorded."""
+    code that differs from what was recorded.
 
-    def __init__(self, programs: Sequence[Program]) -> None:
+    With ``ends_at_deadline`` (as for ``ReplayClient``), a cell past the
+    last recorded one is the comparator's cell cut off by the wall-clock
+    limit, and raises ``TimeoutError``."""
+
+    def __init__(self, programs: Sequence[Program], ends_at_deadline: bool = False) -> None:
+        self._deadline = ends_at_deadline
         # Setup cells (the comparator's) and model cells, in seq order.
         self._cells = [p for p in programs if p.kind in ("setup", "cell")]
         # Submit checks and the final rerun are workspace reruns, in seq order.
@@ -258,6 +263,8 @@ class ReplayWorkspace:
         return p
 
     async def execute(self, code: str, timeout_s: int) -> CellResult:
+        if not self._cells and self._deadline:
+            raise TimeoutError("the recorded run reached its wall-clock limit in this cell")
         p = self._take(self._cells, code, "cell")
         self._session = p.session
         return CellResult.model_validate(p.record)
