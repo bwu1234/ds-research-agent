@@ -1,10 +1,11 @@
-from ds_research_agent.agent.answers import COMPARATOR, Submission
+from ds_research_agent.agent.answers import COMPARATOR, Submission, check_submission
 from ds_research_agent.agent.loop import (
     Outcome,
     ProgramEvent,
     Recorder,
     Verification,
     run_agent,
+    verification,
 )
 from ds_research_agent.agent.tool_calls import (
     CallProblem,
@@ -32,8 +33,10 @@ __all__ = [
     "Verification",
     "Workspace",
     "chat_with_repair",
+    "check_submission",
     "check_calls",
     "check_response",
     "run_agent",
     "user_prompt",
+    "verification",
 ]

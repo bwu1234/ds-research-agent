@@ -285,3 +285,9 @@ def test_mount_validation(runner: SandboxRunner) -> None:
             runner.run("", [InputMount(host_path=src, container_path=bad)])
     with pytest.raises(FileNotFoundError):
         runner.run("", [InputMount(host_path=WATER / "missing.csv", container_path="/data/m")])
+
+
+def test_image_id_is_stable_across_rebuilds(runner: SandboxRunner) -> None:
+    """Runs record the image ID; a rebuild of the same layers must not change it."""
+    first = runner.image_info().image_id
+    assert runner.build_image().image_id == first

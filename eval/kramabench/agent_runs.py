@@ -235,7 +235,8 @@ class ReplayWorkspace:
     code that differs from what was recorded."""
 
     def __init__(self, programs: Sequence[Program]) -> None:
-        self._cells = [p for p in programs if p.kind == "cell"]
+        # Setup cells (the comparator's) and model cells, in seq order.
+        self._cells = [p for p in programs if p.kind in ("setup", "cell")]
         # Submit checks and the final rerun are workspace reruns, in seq order.
         self._reruns = [p for p in programs if p.kind in ("submit_check", "final_rerun")]
         self._ends = [

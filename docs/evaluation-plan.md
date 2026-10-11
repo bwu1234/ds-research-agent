@@ -213,7 +213,9 @@ and operator minutes spent preparing inputs, intervening, or reviewing each
 condition. Keep manual answer repairs outside autonomous scores and disclose
 all interventions; distinguish one-time setup from per-task effort.
 The D3 values are registered in
-[D3 progress (g)](implementation-plan.md#d3-progress).
+[D3 progress (g)](implementation-plan.md#d3-progress); the comparator, a
+modified smolagents `CodeAgent` on the same sandbox and verifier, is defined
+in (h), with its departures from stock CodeAgent.
 
 Report paired correctness differences with uncertainty and audit coverage
 separately. At D3, record continue, simplify, stop, or inconclusive against the

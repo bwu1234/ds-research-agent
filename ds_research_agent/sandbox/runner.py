@@ -149,7 +149,14 @@ class SandboxRunner:
             raise SandboxUnavailable(f"Docker is unreachable: {e}") from e
 
     def build_image(self) -> ImageInfo:
-        self._docker("build", "-q", "-t", self.settings.image, str(IMAGE_DIR), timeout=1800)
+        # Without a provenance attestation (BuildKit regenerates it, with a
+        # timestamp, on every build), the image ID is the manifest digest and
+        # stays the same across rebuilds of identical layers, so runs can be
+        # matched to an image by ID.
+        self._docker(
+            "build", "-q", "--provenance=false", "-t", self.settings.image, str(IMAGE_DIR),
+            timeout=1800,
+        )  # fmt: skip
         return self.image_info()
 
     def image_info(self) -> ImageInfo:
