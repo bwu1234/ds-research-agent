@@ -1305,6 +1305,15 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     extra step, the deadline marker, which the live run never sent. Tests:
     `tests/test_replay_deadline.py` (both conditions, cut at a request and
     at a cell, through `cmd_replay`).
+  - **Freeze, as read here.** The probes are development-split runs, so the
+    (g) freeze is in force. This fix lands after them, but it does not make
+    a new comparison: every run the decision uses (both probes and both
+    development passes) is recorded at `e2df826`, and the passes run from a
+    checkout at that commit whether or not the fix has merged. The fix
+    changes only `ReplayClient`, `ReplayWorkspace`, and `cmd_replay`, which
+    live runs do not use; it only reads recordings afterwards. A batch
+    whose recorded `repo_revision` is not `e2df826` is not part of this
+    comparison.
 
 ## D4 — End to end with provenance
 
