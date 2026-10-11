@@ -69,12 +69,14 @@ class _Frozen(BaseModel):
 
 class ProgramEvent(_Frozen):
     """One exploration cell, a submitted program that failed its run and was
-    returned (``submit_check``), or the final program's fresh rerun."""
+    returned (``submit_check``), or the final program's fresh rerun. ``setup``
+    is harness code run in the kernel before the model's cells (the
+    comparator's ``final_answer`` definition), not a model cell."""
 
     seq: int
     step: int  # the model step that called it; for a rerun, the submit step
     call_index: int
-    kind: Literal["cell", "submit_check", "final_rerun"]
+    kind: Literal["setup", "cell", "submit_check", "final_rerun"]
     session: str | None
     code: str
     cell: CellResult | None = None
@@ -171,6 +173,43 @@ def render_run_output(run: SandboxRun, limit: int) -> str:
     if run.stderr or run.stderr_truncated:
         parts.append("stderr:\n" + _tail(run.stderr.rstrip("\n"), limit, False))
     return "\n".join(parts) or "(no output)"
+
+
+def verification(sub: Submission, run: SandboxRun | None, error: str | None) -> Verification:
+    """Compare the final rerun with the submission: ``reproduction-v1`` on the
+    answer, and the read audit against ``files_used``."""
+    detail = [error] if error else []
+    answered, value = (False, None)
+    if run is not None and run.exit_code == 0:
+        answered, value = program_answer(run.stdout)
+    if run is not None and run.exit_code != 0:
+        detail.append(f"rerun exited {run.exit_code}")
+    if run is not None and run.exit_code == 0 and not answered:
+        detail.append('rerun printed no {"answer": ...} last line')
+    reproduced = answered and reproduces(sub.answer, value)
+    if answered and not reproduced:
+        detail.append("rerun answer differs from the submitted answer")
+    observed = tuple(sorted(o.container_path for o in run.observed_reads)) if run else ()
+    claimed = tuple(sorted(set(sub.files_used)))
+    complete = bool(run and run.audit.complete)
+    if run is not None and not complete:
+        detail.append("read audit incomplete: " + "; ".join(run.audit.issues))
+    if complete and not observed:
+        detail.append("rerun read no data files")
+    if complete and observed and set(observed) != set(claimed):
+        detail.append("observed reads differ from files_used")
+    return Verification(
+        comparator=COMPARATOR,
+        rerun_exit_code=run.exit_code if run else None,
+        rerun_answered=answered,
+        rerun_answer=value,
+        reproduced=reproduced,
+        audit_complete=complete,
+        observed_files=observed,
+        claimed_files=claimed,
+        access_verified=complete and bool(observed) and set(observed) == set(claimed),
+        detail=tuple(detail),
+    )
 
 
 def _tool(name: str, content: str) -> ChatMessage:
@@ -293,7 +332,6 @@ class _Run:
     def verify(
         self, sub: Submission, step: int, index: int, run: SandboxRun | None, error: str | None
     ) -> Verification:
-        detail = [error] if error else []
         if run is not None:
             self.recorder.program(
                 ProgramEvent(
@@ -307,37 +345,7 @@ class _Run:
                 )
             )
             self.seq += 1
-        answered, value = (False, None)
-        if run is not None and run.exit_code == 0:
-            answered, value = program_answer(run.stdout)
-        if run is not None and run.exit_code != 0:
-            detail.append(f"rerun exited {run.exit_code}")
-        if run is not None and run.exit_code == 0 and not answered:
-            detail.append('rerun printed no {"answer": ...} last line')
-        reproduced = answered and reproduces(sub.answer, value)
-        if answered and not reproduced:
-            detail.append("rerun answer differs from the submitted answer")
-        observed = tuple(sorted(o.container_path for o in run.observed_reads)) if run else ()
-        claimed = tuple(sorted(set(sub.files_used)))
-        complete = bool(run and run.audit.complete)
-        if run is not None and not complete:
-            detail.append("read audit incomplete: " + "; ".join(run.audit.issues))
-        if complete and not observed:
-            detail.append("rerun read no data files")
-        if complete and observed and set(observed) != set(claimed):
-            detail.append("observed reads differ from files_used")
-        return Verification(
-            comparator=COMPARATOR,
-            rerun_exit_code=run.exit_code if run else None,
-            rerun_answered=answered,
-            rerun_answer=value,
-            reproduced=reproduced,
-            audit_complete=complete,
-            observed_files=observed,
-            claimed_files=claimed,
-            access_verified=complete and bool(observed) and set(observed) == set(claimed),
-            detail=tuple(detail),
-        )
+        return verification(sub, run, error)
 
     async def run(self, messages: list[ChatMessage]) -> Outcome:
         steps = 0

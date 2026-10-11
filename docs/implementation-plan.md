@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -1190,7 +1190,7 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     specialized guidance, re-plan, no-progress nudge, budget notices, or
     submit check. That runner is labelled a proxy. Either way, the
     definition is frozen (prompt, tools, retry policy) in its own entry
-    before the P2 runs.
+    before the P2 runs. Outcome: `CodeAgent` works; see (h).
   - **Thinking level, decided: frozen at `off`.** No recheck in the loop.
     Limitation: the level was chosen on single-shot `inline` runs (D1),
     where `low` to `xhigh` were slower and no better.
@@ -1199,6 +1199,86 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     about 2.5 h. About 14 h in total, plus about 11 h if the second pass is
     triggered. All local,
     no paid calls.
+- **(h) Minimal comparator: spike result and definition, 2026-10-11.**
+  - **Spike result: yes.** smolagents `CodeAgent` (1.26.0, pinned in the
+    `eval` dependency group) runs on this sandbox and replays, through three
+    seams it already has: a custom `executor` (each code block is one cell in
+    the run's audited kernel), a `Model` subclass (requests go through the
+    harness's recording client, so each is a ledger step), and
+    `final_answer_checks` (the submission schema and `check_submission`).
+    `final_answer` is defined in the kernel by a `setup` cell; calling it
+    raises an exception whose message is the submission as one JSON line,
+    read back from the cell's traceback. Code:
+    `eval/kramabench/codeagent_runs.py`, condition `codeagent`. Evidence:
+    offline tests (`tests/test_codeagent.py`: cells, steps, rejected
+    submission, kernel restart, harness errors raised rather than shown to
+    the model, replay), a Docker test on the real kernel
+    (`tests/sandbox/test_codeagent_kernel.py`: numpy values and multi-line
+    programs survive the traceback, an oversized payload is an error, the
+    rerun verifies with a complete audit), and a live smoke batch
+    (`codeagent-smoke-off-20261011T014550`, 2 tasks: one submitted,
+    reproduced, and access-verified in 110 s; one hit `max_steps` after 20
+    cells, the last three identical; replay 0 differences over 28
+    requests). Two tasks say nothing about accuracy.
+  - **Found: Ollama 0.35.1's MLX runner ignores `stop`** (chat and generate
+    APIs; the GGUF runner honours it; `qwen3.5:4b` and `qwen3.5:4b-mlx`
+    compared). CodeAgent depends on stopping at `</code>`: without it the
+    model wrote past the block and invented `Calling tools:` turns. The
+    first smoke attempt (`codeagent-smoke-off-20261011T014227`) ran so and
+    was stopped; it is invalid. `OllamaModelClient` now streams when `stop`
+    is configured and closes the stream at the first stop sequence
+    (`done_reason` `client_stop`). Those steps have no server counters, so
+    prefill and throughput figures are missing for this condition; its
+    runtime is wall clock. Requests without `stop` (`given_files`, the
+    baselines) are unchanged.
+  - **Definition, to be frozen with this entry** (prefix hash
+    `427ce7f5af89523673245b5980d9306783ebc1ebb94b9baa3c258bd1a8801132`:
+    CodeAgent's rendered system prompt and the stop sequences):
+    - *Prompt:* CodeAgent's stock `code_agent.yaml` system prompt, with
+      `instructions` set to one environment paragraph (paths, no network or
+      installs, the sandbox package list, the answer and program contract;
+      `INSTRUCTIONS`). The task message is the given-files one without the
+      turn-budget line: question, answer type when visible, file paths and
+      sizes.
+    - *Tools:* code blocks run as kernel cells; one tool,
+      `final_answer(answer, files_used, program, assumptions)`.
+    - *Retry policy:* CodeAgent's own. Code errors, unparsable replies, and
+      rejected submissions come back with its standard retry text; no
+      planning steps. None of `given_files`' guidance: no analysis tips,
+      re-plan, no-progress nudge, budget notices, or submit check.
+    - *Shared with `given_files`:* model and settings (thinking off,
+      temperature 0, seed 0), mounts, image, the budgets in (g), the
+      submission contract, the fresh-rerun verifier, and the scorer.
+  - **Departures from stock CodeAgent**, each of which may move its score
+    either way. Results are reported as "a modified smolagents CodeAgent
+    (1.26.0)", not as smolagents.
+    - Out of steps, the run ends with no answer; stock CodeAgent asks the
+      model once more for a code-free answer, which has no program to verify.
+    - `final_answer` takes the four-part submission, not one value, and is
+      validated before it is accepted.
+    - Code runs in the persistent sandbox kernel, not smolagents' local AST
+      interpreter. Imports are authorized with `"*"`, so the prompt's import
+      line says any package may be imported; the package list is only in the
+      environment paragraph.
+    - Output is stdout and stderr cut at 4,000 characters by smolagents'
+      `truncate_content` (stock: 50,000-character print limit). The
+      "Last output from code snippet" value is always `None`, because the
+      kernel prints a final expression's value to stdout instead.
+    - Kernel deaths are reported with a restart note, and `final_answer` is
+      redefined in the new session.
+    - Stop sequences are enforced by the client (above), and the 30-minute
+      task budget by per-call deadlines and an interrupt at the next step;
+      stock CodeAgent has no wall-clock budget.
+  - **Sandbox image ID made stable** (fixed before the P2 runs). The ID
+    recorded per run changed on every build: with Docker's containerd image
+    store it was the digest of an OCI index, and BuildKit regenerates the
+    provenance attestation in it, with a timestamp, on each build. Every
+    `given_files` batch so far therefore has its own ID; packages are
+    hash-pinned, so results are unaffected, but the IDs cannot show that two
+    batches used the same image. The image is now built with
+    `--provenance=false`, so the ID is the manifest digest; two rebuilds gave
+    the same ID, where two default builds gave two. A Docker test checks it.
+    The first build after this change records a new ID once.
 
 ## D4 — End to end with provenance
 

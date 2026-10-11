@@ -13,8 +13,10 @@
         --category CATEGORY --note TEXT
 
 Conditions: ``no_tools`` and ``inline`` (D1 baselines, one request per
-task) and ``given_files`` (the D3 agent; needs Docker, and builds or reuses
-the sandbox image). ``run`` calls the local model (slow, free) and needs the
+task), ``given_files`` (the D3 agent), and ``codeagent`` (the D3 minimal
+comparator, smolagents CodeAgent on the same sandbox; see
+``eval.kramabench.codeagent_runs``). Program conditions need Docker, and
+build or reuse the sandbox image. ``run`` calls the local model (slow, free) and needs the
 frozen split. Task
 sets: ``smoke`` (the two ``-tiny`` tasks), ``sample`` (the fixed D3 sample),
 ``dev``; ``holdout`` is refused unless ``--unseal-holdout`` is given, which is
@@ -44,7 +46,7 @@ from ds_research_agent.config import ModelSettings, Settings, load_settings
 from ds_research_agent.ledger import Batch, Ledger, canonical, utc_now
 from ds_research_agent.models.ollama_client import OllamaModelClient
 from ds_research_agent.sandbox import InputMount, SandboxRunner, SandboxUnavailable
-from eval.kramabench import agent_runs, failures, report
+from eval.kramabench import agent_runs, codeagent_runs, failures, report
 from eval.kramabench.baselines import (
     CONDITIONS,
     PROGRAM_CONDITIONS,
@@ -61,7 +63,12 @@ from eval.kramabench.split import Split, SplitError, frozen_split
 from eval.kramabench.tasks import Task
 
 REPO = Path(__file__).resolve().parents[2]
-ALL_CONDITIONS = (*CONDITIONS, agent_runs.CONDITION)
+ALL_CONDITIONS = (*CONDITIONS, agent_runs.CONDITION, codeagent_runs.CONDITION)
+# Program conditions: the D3 agent and the minimal comparator.
+AGENT_TASKS = {
+    agent_runs.CONDITION: (agent_runs.run_agent_task, agent_runs.prefix_sha256),
+    codeagent_runs.CONDITION: (codeagent_runs.run_codeagent_task, codeagent_runs.prefix_sha256),
+}
 
 
 def _git(*args: str) -> str | None:
@@ -126,7 +133,7 @@ def new_batch(
         answer_type_visible=settings.eval.answer_type_visible,
         scoring_profile=PROFILE,
         system_prompt_sha256=(
-            agent_runs.prefix_sha256()
+            AGENT_TASKS[condition][1]()
             if condition in PROGRAM_CONDITIONS
             else sha256_text(SYSTEM_PROMPTS[condition])  # type: ignore[index]
         ),
@@ -158,7 +165,7 @@ def resume_problems(old: Batch, new: Batch) -> list[str]:
     return out
 
 
-def docker_agent_task(settings: Settings) -> AgentTask:
+def docker_agent_task(settings: Settings, condition: str) -> AgentTask:
     """Agent runs on real containers; builds (or reuses) the sandbox image."""
     runner = SandboxRunner(settings.sandbox)
     image = runner.build_image()
@@ -168,7 +175,8 @@ def docker_agent_task(settings: Settings) -> AgentTask:
         return DockerWorkspace(runner, mounts)
 
     async def task(h: Harness, b: Batch, t: Task, r: int, client: Any) -> Any:
-        return await agent_runs.run_agent_task(h, b, t, r, client, workspace_for, image.image_id)
+        run_task = AGENT_TASKS[condition][0]
+        return await run_task(h, b, t, r, client, workspace_for, image.image_id)
 
     return task
 
@@ -195,7 +203,10 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
                 f"is {model.server_version}; refusing to mix server versions in results"
             )
     cap = settings.agent.max_output_tokens if agentic else ev.max_output_tokens
-    update: dict[str, Any] = {"options": model.options | {"num_predict": cap}}
+    options = model.options | {"num_predict": cap}
+    if args.condition == codeagent_runs.CONDITION:
+        options["stop"] = codeagent_runs.STOP
+    update: dict[str, Any] = {"options": options}
     if args.think is not None:
         update["think"] = False if args.think == "off" else args.think
     model = model.model_copy(update=update)
@@ -236,7 +247,7 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
     print(f"batch {batch.batch_id}: {len(keys)} tasks x {args.repeats}", file=sys.stderr)
     h = Harness(settings, model, ledger, split, tasks)
     client = OllamaModelClient(model)
-    agent_task = docker_agent_task(settings) if agentic else None
+    agent_task = docker_agent_task(settings, args.condition) if agentic else None
     try:
         asyncio.run(run_batch(h, batch, lambda _t, _r: client, _progress, agent_task))
     except SandboxUnavailable as e:
@@ -284,7 +295,8 @@ def cmd_replay(args: argparse.Namespace, settings: Settings) -> int:
             o = orig_runs[(t.key, r)]
             progs = ledger.programs(o.run_id)
             image = o.input_manifest.get("sandbox_image")
-            return await agent_runs.run_agent_task(
+            run_task = AGENT_TASKS[orig.condition][0]
+            return await run_task(
                 h, b, t, r, client, lambda *_: agent_runs.ReplayWorkspace(progs), image
             )
 

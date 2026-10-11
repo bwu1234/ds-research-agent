@@ -480,7 +480,7 @@ async def run_task(
 
 
 # Conditions whose runs submit a program; their verified success is a bool.
-PROGRAM_CONDITIONS = frozenset({"given_files"})
+PROGRAM_CONDITIONS = frozenset({"given_files", "codeagent"})
 
 
 def score_run(ledger: Ledger, run_id: str, task: Task, condition: str) -> Score:

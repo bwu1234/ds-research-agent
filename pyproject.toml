@@ -25,6 +25,13 @@ dev = [
     "types-jsonschema>=4.26.0.20261006",
     "types-openpyxl>=3.1.5.20260827",
 ]
+# The D3 minimal comparator (eval/kramabench/codeagent_runs.py); not the agent.
+eval = [
+    "smolagents==1.26.0",
+]
+
+[tool.uv]
+default-groups = ["dev", "eval"]
 
 [build-system]
 requires = ["hatchling"]
@@ -51,6 +58,11 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.mypy]
 strict = true
 packages = ["ds_research_agent", "eval"]
+
+[[tool.mypy.overrides]]
+# Untyped; used only by the D3 comparator (eval/kramabench/codeagent_runs.py).
+module = ["smolagents", "smolagents.*"]
+ignore_missing_imports = true
 
 [tool.pyright]
 venvPath = "."
