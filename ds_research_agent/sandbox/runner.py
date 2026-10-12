@@ -89,8 +89,8 @@ class SandboxUnavailable(SandboxError):
 
 def bind_mount_arg(src: Path | str, dst: str, *, readonly: bool = False) -> str:
     """The `--mount` value for a bind mount. Docker parses it as one CSV record,
-    so a path containing a comma (a benchmark file is named "..., Identity
-    Theft, ...") must be a quoted field; `-v` splits on `:` and has no quoting."""
+    so a path containing a comma (one benchmark file name has ", " in it)
+    must be a quoted field; `-v` splits on `:` and has no quoting."""
     fields = ["type=bind", f"src={src}", f"dst={dst}"] + (["readonly"] if readonly else [])
     buf = io.StringIO()
     csv.writer(buf, lineterminator="").writerow(fields)

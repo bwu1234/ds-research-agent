@@ -295,9 +295,9 @@ def test_image_id_is_stable_across_rebuilds(runner: SandboxRunner) -> None:
 
 def test_comma_in_mounted_filename(run: Run, tmp_path: Path) -> None:
     """KramaBench has a data file whose name contains ", "; `--mount` needs it quoted."""
-    src = tmp_path / "Fraud, Identity Theft, and Other.csv"
+    src = tmp_path / "Report, Part Two, and Other.csv"
     src.write_bytes((WATER / "station_readings.csv").read_bytes())
-    cp = "/data/water/Fraud, Identity Theft, and Other.csv"
+    cp = "/data/water/Report, Part Two, and Other.csv"
     r = run(
         f"print(len(open({cp!r}).read()) > 0)",
         [InputMount(host_path=src, container_path=cp)],

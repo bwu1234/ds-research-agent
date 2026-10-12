@@ -15,7 +15,7 @@ def test_plain_paths_are_unquoted() -> None:
 
 
 def test_comma_in_path_stays_one_field() -> None:
-    name = "2024_CSN_Fraud, Identity Theft, and Other Reports.csv"
+    name = "Report, Part Two, and Other.csv"
     arg = bind_mount_arg(f"/h/{name}", f"/data/legal/{name}", readonly=True)
     assert _parse(arg) == [
         "type=bind",
