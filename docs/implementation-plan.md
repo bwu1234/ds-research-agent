@@ -1282,6 +1282,38 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     `--provenance=false`, so the ID is the manifest digest; two rebuilds gave
     the same ID, where two default builds gave two. A Docker test checks it.
     The first build after this change records a new ID once.
+- **(i) Determinism probes run; replay of wall-limited runs, 2026-10-11.**
+  - **Probes, as registered in (g):** the 12 sample tasks once more per
+    agent condition, thinking off, at `e2df826` (the #17 merge, clean
+    tree): `d3-probe-given_files-off` (61 min) and `d3-probe-codeagent-off`
+    (94 min). Each had 10 submitted runs, 1 `max_steps`, and 1 `max_wall`.
+    The probe outcome (how many of the 12 change strict outcome) needs the
+    development passes, whose sample-task runs they pair with. The
+    development passes run at the same commit.
+  - **Replay fault, fixed in replay only.** The two `max_wall` runs did not
+    replay; every other run replayed exactly. A replay takes seconds, so
+    the deadline never fires in it: a request the deadline cut off is
+    recorded with neither response nor error, which replay read as a model
+    error, and a `given_files` run stopped by the clock check between steps
+    has no recorded step after it, so replay sent one request too many. Now
+    `replay` passes each run's recorded stop reason: for a `max_wall` run,
+    the recording's end (a cut-off request, a request or cell past the last
+    recorded one) raises `TimeoutError`, which both loops already map to
+    `max_wall`. Other runs replay as strictly as before. Live-run code and
+    prefix hashes are unchanged. Both probe batches now replay with 0
+    differences. A `given_files` run stopped between steps replays with one
+    extra step, the deadline marker, which the live run never sent. Tests:
+    `tests/test_replay_deadline.py` (both conditions, cut at a request and
+    at a cell, through `cmd_replay`).
+  - **Freeze, as read here.** The probes are development-split runs, so the
+    (g) freeze is in force. This fix lands after them, but it does not make
+    a new comparison: every run the decision uses (both probes and both
+    development passes) is recorded at `e2df826`, and the passes run from a
+    checkout at that commit whether or not the fix has merged. The fix
+    changes only `ReplayClient`, `ReplayWorkspace`, and `cmd_replay`, which
+    live runs do not use; it only reads recordings afterwards. A batch
+    whose recorded `repo_revision` is not `e2df826` is not part of this
+    comparison.
 
 - **(j) Amendment: comma in a mounted file name; passes continue at a new
   commit, 2026-10-12.**
