@@ -155,6 +155,7 @@ def test_codeagent_runs_in_the_kernel_records_verifies_and_replays(tmp_path: Pat
     script = CodeAgentScript(answers, {t[3].query: WRONG_FILES})
     batch, kernels = _run(h, keys, script)
     runs = {r.task_key: r for r in h.ledger.runs(batch.batch_id)}
+    assert {r.repo_revision for r in runs.values()} == {"rev-test"}
     stops = [runs[k].stop_reason for k in keys]
     assert stops == ["submitted", "submitted", "max_steps", "submitted"]
     assert batch.system_prompt_sha256 == codeagent_runs.prefix_sha256()

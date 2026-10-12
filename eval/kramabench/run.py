@@ -245,7 +245,7 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
         done = len(ledger.runs(batch.batch_id))
         print(f"resuming {batch.batch_id}: {done} done, redoing {dropped}", file=sys.stderr)
     print(f"batch {batch.batch_id}: {len(keys)} tasks x {args.repeats}", file=sys.stderr)
-    h = Harness(settings, model, ledger, split, tasks)
+    h = Harness(settings, model, ledger, split, tasks, repo_revision=_git("rev-parse", "HEAD"))
     client = OllamaModelClient(model)
     agent_task = docker_agent_task(settings, args.condition) if agentic else None
     try:
@@ -285,7 +285,7 @@ def cmd_replay(args: argparse.Namespace, settings: Settings) -> int:
         note="replay of recorded responses",
     )
     ledger.add_batch(replay)
-    h = Harness(settings, model, ledger, split, tasks)
+    h = Harness(settings, model, ledger, split, tasks, repo_revision=_git("rev-parse", "HEAD"))
 
     def client_for(t: Task, r: int) -> ReplayClient:
         return ReplayClient(model, steps.get((t.key, r), []), (t.key, r) in at_deadline)
@@ -450,6 +450,20 @@ def cmd_failures(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def cmd_backfill_revision(args: argparse.Namespace, settings: Settings) -> int:
+    """Set repo_revision on runs recorded before schema 4 (never overwrites)."""
+    ledger = Ledger(settings.eval.ledger_path)
+    ledger.batch(args.batch)  # unknown batch is an error
+    n = ledger.set_run_revision(
+        args.batch,
+        args.revision,
+        started_from=args.started_from,
+        started_before=args.started_before,
+    )
+    print(f"{args.batch}: set repo_revision {args.revision} on {n} runs")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m eval.kramabench.run")
     ap.add_argument("--config", type=Path, required=True)
@@ -489,6 +503,11 @@ def main(argv: list[str] | None = None) -> int:
     lb.add_argument("--run", required=True)
     lb.add_argument("--category", choices=failures.CATEGORIES, required=True)
     lb.add_argument("--note", required=True)
+    bf = sub.add_parser("backfill-revision")
+    bf.add_argument("--batch", required=True)
+    bf.add_argument("--revision", required=True)
+    bf.add_argument("--started-from", help="only runs started at or after this ISO time")
+    bf.add_argument("--started-before", help="only runs started before this ISO time")
     args = ap.parse_args(argv)
     settings = load_settings(args.config)
     handlers = {
@@ -502,6 +521,7 @@ def main(argv: list[str] | None = None) -> int:
         "failures": cmd_failures,
         "show": cmd_show,
         "label": cmd_label,
+        "backfill-revision": cmd_backfill_revision,
     }
     try:
         return handlers[args.command](args, settings)

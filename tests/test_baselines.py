@@ -152,7 +152,7 @@ def _harness(tmp_path: Path) -> tuple[Settings, Harness]:
     s = settings_for(tmp_path, task_timeout_s=0.2)
     split, tasks = split_for(s)
     s = s.model_copy(update={"eval": s.eval.model_copy(update={"split_sha256": split.sha256()})})
-    return s, Harness(s, s.model, Ledger(s.eval.ledger_path), split, tasks)
+    return s, Harness(s, s.model, Ledger(s.eval.ledger_path), split, tasks, "rev-test")
 
 
 def _run(h: Harness, condition: str, keys: tuple[str, ...], behaviour: dict[str, str]) -> str:
@@ -177,6 +177,7 @@ def test_failures_stay_in_the_denominator_and_replay_is_identical(tmp_path: Path
     behaviour = {keys[0]: "prose", keys[1]: "error", keys[2]: "hang", keys[3]: "length"}
     bid = _run(h, "inline", keys, behaviour)
     runs = {r.task_key: r for r in h.ledger.runs(bid)}
+    assert {r.repo_revision for r in runs.values()} == {"rev-test"}
     assert [runs[k].stop_reason for k in keys[:4]] == [
         "malformed", "model_error", "timeout", "budget_exhausted",
     ]  # fmt: skip

@@ -1313,7 +1313,9 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     changes only `ReplayClient`, `ReplayWorkspace`, and `cmd_replay`, which
     live runs do not use; it only reads recordings afterwards. A batch
     whose recorded `repo_revision` is not `e2df826` is not part of this
-    comparison.
+    comparison. (Amended by (j): the rule applies per run, not per batch
+    row, because a resumed batch can mix commits; `runs.repo_revision`
+    records it.)
 
 - **(j) Amendment: comma in a mounted file name; passes continue at a new
   commit, 2026-10-12.**
@@ -1338,10 +1340,22 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     `codeagent` pass run at the commit that contains this entry. Reason for
     keeping the earlier runs: the change affects only a path with a comma, and
     no finished run mounted one, so for those runs it changes no byte of the
-    command. Limitation: the batch rows in the ledger keep `e2df826` as
-    `repo_revision` (resume does not update it); the real revision per task
-    is in `data/runs/d3-dev.log` and the run script's output. A comparison
-    that mixes the two commits is labelled so in the results entry. Rerunning
+    command. Resume keeps the existing batch row, so the
+    `given_files` batch row still says `e2df826` even though 14 of its runs
+    ran at `7afd50a`. To keep ledger consumers from grouping by the batch
+    row, the ledger (schema 4) now has `runs.repo_revision`, stamped on every
+    run from the running checkout's HEAD (`Harness.repo_revision`); rows from
+    before schema 4 are NULL, meaning unknown, not the batch's revision.
+    Backfill, from what the log and timestamps establish, with
+    `run backfill-revision` (never overwrites a recorded value). Checked on a
+    copy of the ledger; not yet applied to the working ledger, because the
+    first run of schema-4 code upgrades it and older checkouts then refuse
+    to open it, so apply it once this has merged:
+    `d3-dev-given_files-off` runs started before 2026-10-12T02:00 UTC →
+    `e2df826` (39 runs), from then → `7afd50a` (14); `d3-dev-codeagent-off`
+    → `7afd50a` (53); both `d3-probe-*` batches → `e2df826` (12 each). Other
+    batches stay NULL. A comparison that mixes the two commits is labelled
+    so in the results entry. Rerunning
     everything at one commit (option A, about 14 h) was the alternative.
 
 - **(k) Paired development comparison: results and decision, 2026-10-12.**
@@ -1350,7 +1364,9 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
   off, `local-deterministic-v1`. Both new batches replay with 0 differences.
   Commits: the first 39 `given_files` runs and the two probes at `e2df826`;
   the other 14 `given_files` tasks and all of `codeagent` at `7afd50a`
-  (see (j)). The batch rows in the ledger say `e2df826` for both.
+  (see (j)). Group runs by `runs.repo_revision`, not by the batch row: the
+  `given_files` batch row says `e2df826` for all 53, the `codeagent` row
+  says `7afd50a`.
   - **Strict accuracy, 41 primary (untuned) tasks:** `inline` 36.6%,
     `codeagent` 53.7%, `given_files` 58.5%.
   - **P1, `given_files` minus `inline`:** +22.0 points, 95% interval

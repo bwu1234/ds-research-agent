@@ -299,6 +299,7 @@ async def run_agent_task(
         access_policy=ACCESS_POLICY,
         catalogue_generation=None,
         started=utc_now(),
+        repo_revision=h.repo_revision,
     )
     h.ledger.add_run(run)
     rc = RecordingClient(client, h, run.run_id)
