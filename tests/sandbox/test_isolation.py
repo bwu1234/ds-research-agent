@@ -280,7 +280,7 @@ def test_detached_grandchild_read_observed(run: Run) -> None:
 
 def test_mount_validation(runner: SandboxRunner) -> None:
     src = WATER / "station_readings.csv"
-    for bad in ["/etc/passwd", "/data", "/data/../etc/x", "data/x", "/data/a,b"]:
+    for bad in ["/etc/passwd", "/data", "/data/../etc/x", "data/x", '/data/a"b']:
         with pytest.raises(ValueError):
             runner.run("", [InputMount(host_path=src, container_path=bad)])
     with pytest.raises(FileNotFoundError):
@@ -291,3 +291,16 @@ def test_image_id_is_stable_across_rebuilds(runner: SandboxRunner) -> None:
     """Runs record the image ID; a rebuild of the same layers must not change it."""
     first = runner.image_info().image_id
     assert runner.build_image().image_id == first
+
+
+def test_comma_in_mounted_filename(run: Run, tmp_path: Path) -> None:
+    """KramaBench has a data file whose name contains ", "; `--mount` needs it quoted."""
+    src = tmp_path / "Report, Part Two, and Other.csv"
+    src.write_bytes((WATER / "station_readings.csv").read_bytes())
+    cp = "/data/water/Report, Part Two, and Other.csv"
+    r = run(
+        f"print(len(open({cp!r}).read()) > 0)",
+        [InputMount(host_path=src, container_path=cp)],
+    )
+    assert r.exit_code == 0 and r.stdout.strip() == "True"
+    assert r.audit.complete and r.audit.data_reads == [cp]

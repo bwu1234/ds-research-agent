@@ -1315,6 +1315,35 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     whose recorded `repo_revision` is not `e2df826` is not part of this
     comparison.
 
+- **(j) Amendment: comma in a mounted file name; passes continue at a new
+  commit, 2026-10-12.**
+  - **Fault.** The `given_files` development pass (`d3-dev-given_files-off`,
+    started at `e2df826`) stopped at `legal/legal-easy-25` (task 40 of 53, 39
+    runs finished: `submitted` or `max_wall`) with a `ValueError` from
+    `_validate_mounts`: a benchmark file is named `2024_CSN_Fraud, Identity
+    Theft, and Other Reports by Military Consumers.csv`, and the runner
+    refused any comma in a container or host path. It is the only file in the
+    visible store with a comma. The harness's rule (sandbox fault stops the
+    batch, resumable) held; no run was scored 0 for it. The 12 sample tasks
+    and both probes never mount it.
+  - **Fix.** `bind_mount_arg` (`sandbox/runner.py`) writes each `--mount`
+    value as one CSV record, so a comma is a quoted field, and the two
+    comma checks are dropped (a double quote or newline is still refused).
+    Tests: offline `tests/test_mount_args.py`, and a Docker test that mounts
+    a comma-named file and checks the read audit. Prompts, tool schemas,
+    budgets, scorer, and prefix hashes are unchanged.
+  - **Decision (option B, chosen by the owner).** The freeze in (g) is
+    amended, not kept: the 39 finished `given_files` runs and the probes stay
+    at `e2df826`, and the remaining 14 `given_files` tasks and the whole
+    `codeagent` pass run at the commit that contains this entry. Reason for
+    keeping the earlier runs: the change affects only a path with a comma, and
+    no finished run mounted one, so for those runs it changes no byte of the
+    command. Limitation: the batch rows in the ledger keep `e2df826` as
+    `repo_revision` (resume does not update it); the real revision per task
+    is in `data/runs/d3-dev.log` and the run script's output. A comparison
+    that mixes the two commits is labelled so in the results entry. Rerunning
+    everything at one commit (option A, about 14 h) was the alternative.
+
 ## D4 — End to end with provenance
 
 - Combine D2 and D3. The answer object records the files read (path and hash),
