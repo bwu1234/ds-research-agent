@@ -14,6 +14,8 @@ call is stateless apart from the scratch directory.
 
 from __future__ import annotations
 
+import csv
+import io
 import subprocess
 import tempfile
 import time
@@ -85,6 +87,16 @@ class SandboxUnavailable(SandboxError):
     stop the batch (resumable) instead of recording a failure."""
 
 
+def bind_mount_arg(src: Path | str, dst: str, *, readonly: bool = False) -> str:
+    """The `--mount` value for a bind mount. Docker parses it as one CSV record,
+    so a path containing a comma (a benchmark file is named "..., Identity
+    Theft, ...") must be a quoted field; `-v` splits on `:` and has no quoting."""
+    fields = ["type=bind", f"src={src}", f"dst={dst}"] + (["readonly"] if readonly else [])
+    buf = io.StringIO()
+    csv.writer(buf, lineterminator="").writerow(fields)
+    return buf.getvalue()
+
+
 def _validate_mounts(inputs: Sequence[InputMount]) -> list[tuple[Path, str]]:
     seen: set[str] = set()
     out: list[tuple[Path, str]] = []
@@ -94,7 +106,7 @@ def _validate_mounts(inputs: Sequence[InputMount]) -> list[tuple[Path, str]]:
             raise ValueError(f"bad container path: {m.container_path!r}")
         if cp.parts[:2] != ("/", DATA_ROOT.strip("/")) or len(cp.parts) < 3:
             raise ValueError(f"inputs mount under {DATA_ROOT}/: {m.container_path!r}")
-        if any(c in str(cp) for c in ",:\n"):
+        if any(c in str(cp) for c in ':"\n'):
             raise ValueError(f"unsupported character in {m.container_path!r}")
         if str(cp) in seen:
             raise ValueError(f"duplicate container path: {cp}")
@@ -102,7 +114,7 @@ def _validate_mounts(inputs: Sequence[InputMount]) -> list[tuple[Path, str]]:
         # Docker follows a symlinked source; resolve it here so the recorded
         # host path is the file actually mounted.
         host = m.host_path.resolve(strict=True)
-        if any(c in str(host) for c in ",\n"):
+        if any(c in str(host) for c in '"\n'):
             raise ValueError(f"unsupported character in {host}")
         out.append((host, str(cp)))
     return out
@@ -233,12 +245,12 @@ class SandboxRunner:
             "--pids-limit", str(s.pids_limit),
             "--memory", f"{s.memory_mb}m", "--memory-swap", f"{s.memory_mb}m",
             "--cpus", str(s.cpus),
-            "--mount", f"type=bind,src={call / 'program'},dst=/program,readonly",
-            "--mount", f"type=bind,src={call / 'out'},dst=/out",
-            "--mount", f"type=bind,src={scratch},dst=/scratch",
+            "--mount", bind_mount_arg(call / "program", "/program", readonly=True),
+            "--mount", bind_mount_arg(call / "out", "/out"),
+            "--mount", bind_mount_arg(scratch, "/scratch"),
         ]  # fmt: skip
         for host, cp in mounts:
-            cmd += ["--mount", f"type=bind,src={host},dst={cp},readonly"]
+            cmd += ["--mount", bind_mount_arg(host, cp, readonly=True)]
         return cmd
 
     def run(
