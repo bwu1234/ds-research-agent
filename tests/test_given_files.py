@@ -63,7 +63,7 @@ def _harness(tmp_path: Path) -> Harness:
     s = settings_for(tmp_path)
     split, tasks = split_for(s)
     s = s.model_copy(update={"eval": s.eval.model_copy(update={"split_sha256": split.sha256()})})
-    return Harness(s, s.model, Ledger(s.eval.ledger_path), split, tasks)
+    return Harness(s, s.model, Ledger(s.eval.ledger_path), split, tasks, "rev-test")
 
 
 def _workspace_for(reads: dict[str, bool], crash_first: Sequence[str] = ()):  # type: ignore[no-untyped-def]
@@ -125,6 +125,7 @@ def test_given_files_runs_score_verify_report_and_replay(tmp_path: Path) -> None
     }
     batch = _run(h, keys, answers, reads={keys[2]: False}, crash_first=[keys[4]])
     runs = {r.task_key: r for r in h.ledger.runs(batch.batch_id)}
+    assert {r.repo_revision for r in runs.values()} == {"rev-test"}
     stop = [runs[k].stop_reason for k in keys]
     assert stop == ["submitted", "submitted", "submitted", "max_steps", "submitted"]
 

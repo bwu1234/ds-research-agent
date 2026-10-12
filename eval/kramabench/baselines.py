@@ -374,6 +374,8 @@ class Harness:
     ledger: Ledger
     split: Split
     tasks: dict[str, Task]
+    # HEAD of the running checkout, stamped on every run this harness creates.
+    repo_revision: str | None = None
 
 
 def access_policy(condition: Condition) -> str:
@@ -441,6 +443,7 @@ async def run_task(
         access_policy=access_policy(condition),
         catalogue_generation=None,
         started=utc_now(),
+        repo_revision=h.repo_revision,
     )
     h.ledger.add_run(run)
     start = time.monotonic()

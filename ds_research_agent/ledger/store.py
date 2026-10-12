@@ -25,7 +25,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS runs (
     stop_reason TEXT,
     error TEXT,
     failure_category TEXT,
+    repo_revision TEXT,
     UNIQUE (batch_id, task_key, repeat)
 );
 CREATE TABLE IF NOT EXISTS steps (
@@ -217,6 +218,9 @@ class Run(_Row):
     stop_reason: str | None = None
     error: str | None = None
     failure_category: str | None = None
+    # HEAD of the checkout that executed this run; None for rows from before
+    # schema 4. A resumed batch can hold runs from several commits.
+    repo_revision: str | None = None
 
 
 class Step(_Row):
@@ -367,9 +371,18 @@ class Ledger:
             raise LedgerError(f"{path}: schema {row[0]}, expected {SCHEMA_VERSION}")
         self._db.executescript(_SCHEMA_2)
         self._db.executescript(_SCHEMA_3)
+        self._migrate_4()
         self._db.execute(
             "INSERT OR REPLACE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
         )
+
+    def _migrate_4(self) -> None:
+        """Schema 4: runs.repo_revision. A batch resumed at another commit mixes
+        revisions, so each run records the checkout that produced it. Older
+        rows stay NULL (revision unknown; the batch row has the first one)."""
+        cols = {r["name"] for r in self._db.execute("PRAGMA table_info(runs)")}
+        if "repo_revision" not in cols:
+            self._db.execute("ALTER TABLE runs ADD COLUMN repo_revision TEXT")
 
     def close(self) -> None:
         self._db.close()
@@ -404,6 +417,27 @@ class Ledger:
             "UPDATE runs SET ended = ?, wall_s = ?, stop_reason = ?, error = ? WHERE run_id = ?",
             (ended, wall_s, stop_reason, error, run_id),
         )
+
+    def set_run_revision(
+        self,
+        batch_id: str,
+        revision: str,
+        *,
+        started_from: str | None = None,
+        started_before: str | None = None,
+    ) -> int:
+        """Backfill ``repo_revision`` on runs of ``batch_id`` that have none,
+        optionally only those started in ``[started_from, started_before)``
+        (ISO timestamps). Never overwrites a recorded revision."""
+        sql = "UPDATE runs SET repo_revision = ? WHERE batch_id = ? AND repo_revision IS NULL"
+        args: list[str] = [revision, batch_id]
+        if started_from is not None:
+            sql += " AND started >= ?"
+            args.append(started_from)
+        if started_before is not None:
+            sql += " AND started < ?"
+            args.append(started_before)
+        return self._db.execute(sql, args).rowcount
 
     def discard_unfinished(self, batch_id: str) -> list[str]:
         """Delete runs of ``batch_id`` that never finished (an interrupted

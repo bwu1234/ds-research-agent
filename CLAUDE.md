@@ -17,7 +17,10 @@ persistent kernel session exist, and so does the given-files agent loop
 smoke tasks and the fixed 12-task sample, with failure-taxonomy labels in the
 ledger. The D3 minimal comparator, a modified smolagents `CodeAgent` on the
 same sandbox and verifier, is the `codeagent` condition
-(`eval/kramabench/codeagent_runs.py`), run live on the smoke tasks only. The harness refuses an Ollama version other than
+(`eval/kramabench/codeagent_runs.py`). Both agent conditions have run on all 53
+development tasks; the registered paired comparison is decided in
+`docs/implementation-plan.md` (D3 progress (k)): execution beats inlined files,
+and the custom loop versus `codeagent` is inconclusive. The harness refuses an Ollama version other than
 `model.server_version` (0.35.1; 0.40.x crashes on prefix-cache reuse).
 Everything else is planned. Do not
 describe planned modules, tools, commands, evaluations, or integrations as

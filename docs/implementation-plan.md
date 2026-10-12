@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -1313,7 +1313,96 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     changes only `ReplayClient`, `ReplayWorkspace`, and `cmd_replay`, which
     live runs do not use; it only reads recordings afterwards. A batch
     whose recorded `repo_revision` is not `e2df826` is not part of this
-    comparison.
+    comparison. (Amended by (j): the rule applies per run, not per batch
+    row, because a resumed batch can mix commits; `runs.repo_revision`
+    records it.)
+
+- **(j) Amendment: comma in a mounted file name; passes continue at a new
+  commit, 2026-10-12.**
+  - **Fault.** The `given_files` development pass (`d3-dev-given_files-off`,
+    started at `e2df826`) stopped at `legal/legal-easy-25` (task 40 of 53, 39
+    runs finished: `submitted` or `max_wall`) with a `ValueError` from
+    `_validate_mounts`: a benchmark file is named `2024_CSN_Fraud, Identity
+    Theft, and Other Reports by Military Consumers.csv`, and the runner
+    refused any comma in a container or host path. It is the only file in the
+    visible store with a comma. The harness's rule (sandbox fault stops the
+    batch, resumable) held; no run was scored 0 for it. The 12 sample tasks
+    and both probes never mount it.
+  - **Fix.** `bind_mount_arg` (`sandbox/runner.py`) writes each `--mount`
+    value as one CSV record, so a comma is a quoted field, and the two
+    comma checks are dropped (a double quote or newline is still refused).
+    Tests: offline `tests/test_mount_args.py`, and a Docker test that mounts
+    a comma-named file and checks the read audit. Prompts, tool schemas,
+    budgets, scorer, and prefix hashes are unchanged.
+  - **Decision (option B, chosen by the owner).** The freeze in (g) is
+    amended, not kept: the 39 finished `given_files` runs and the probes stay
+    at `e2df826`, and the remaining 14 `given_files` tasks and the whole
+    `codeagent` pass run at the commit that contains this entry. Reason for
+    keeping the earlier runs: the change affects only a path with a comma, and
+    no finished run mounted one, so for those runs it changes no byte of the
+    command. Resume keeps the existing batch row, so the
+    `given_files` batch row still says `e2df826` even though 14 of its runs
+    ran at `7afd50a`. To keep ledger consumers from grouping by the batch
+    row, the ledger (schema 4) now has `runs.repo_revision`, stamped on every
+    run from the running checkout's HEAD (`Harness.repo_revision`); rows from
+    before schema 4 are NULL, meaning unknown, not the batch's revision.
+    Backfill, from what the log and timestamps establish, with
+    `run backfill-revision` (never overwrites a recorded value). Checked on a
+    copy of the ledger; not yet applied to the working ledger, because the
+    first run of schema-4 code upgrades it and older checkouts then refuse
+    to open it, so apply it once this has merged:
+    `d3-dev-given_files-off` runs started before 2026-10-12T02:00 UTC →
+    `e2df826` (39 runs), from then → `7afd50a` (14); `d3-dev-codeagent-off`
+    → `7afd50a` (53); both `d3-probe-*` batches → `e2df826` (12 each). Other
+    batches stay NULL. A comparison that mixes the two commits is labelled
+    so in the results entry. Rerunning
+    everything at one commit (option A, about 14 h) was the alternative.
+
+- **(k) Paired development comparison: results and decision, 2026-10-12.**
+  Registered in (g), amended by (j). Batches `d1-dev-inline-off`,
+  `d3-dev-given_files-off`, `d3-dev-codeagent-off`: 53 tasks each, thinking
+  off, `local-deterministic-v1`. Both new batches replay with 0 differences.
+  Commits: the first 39 `given_files` runs and the two probes at `e2df826`;
+  the other 14 `given_files` tasks and all of `codeagent` at `7afd50a`
+  (see (j)). Group runs by `runs.repo_revision`, not by the batch row: the
+  `given_files` batch row says `e2df826` for all 53, the `codeagent` row
+  says `7afd50a`.
+  - **Strict accuracy, 41 primary (untuned) tasks:** `inline` 36.6%,
+    `codeagent` 53.7%, `given_files` 58.5%.
+  - **P1, `given_files` minus `inline`:** +22.0 points, 95% interval
+    +4.9 to +39.0. Worthwhile gain (at least +10, lower bound above 0).
+    Answer score +22.8 (+8.9 to +36.6). On all 53: +22.6 (+7.6 to +37.7); on
+    the 12 sample tasks: +25.0 (-8.3 to +58.3).
+  - **P2, `given_files` minus `codeagent`:** +4.9 points, interval -9.8 to
+    +19.5. Below +10 and not ruled out: **inconclusive**. Answer score +8.9
+    (-7.7 to +25.5). On all 53: +3.8 (-9.4 to +17.0); on the 12: 0.0
+    (-16.7 to +16.7). Verified success, 41 tasks: `given_files` 31.7%,
+    `codeagent` 34.1%, difference -2.4 (-19.5 to +14.6), so the audit-value
+    exception does not apply.
+  - **Practical limits, all 53 tasks.** `given_files`: median 2.1 min, p90
+    8.6 min, budget stops 1 of 53 (2%), pass 3.4 h: meets all four.
+    `codeagent`: median 2.8 min, p90 11.1 min, budget stops 10 of 53 (19%),
+    pass 4.2 h: **misses the 15% budget-stop limit**, impractical at these
+    budgets. The runtime trade-off rule does not apply: `given_files` median
+    is 0.75 times `codeagent`'s, below 1.5.
+  - **Determinism probes** (the 12 sample tasks rerun, compared with the same
+    tasks in the development passes): strict outcome changed on 1 task for
+    `given_files` and 2 for `codeagent`. The trigger is more than 2, so no
+    second full pass. `codeagent` is at the threshold.
+  - **Decision.** P1: **continue**; execution pays at this budget and
+    `given_files` meets the practical limits. P2: **inconclusive**; D4
+    proceeds with the existing loop and no specialization benefit is
+    claimed. This is not evidence of a tie: with 41 tasks a true +10 gain
+    would mostly come out inconclusive, as (g) stated in advance.
+  - **Limitations.** One pass per condition at temperature 0, so run-to-run
+    variance is measured only by the 12-task probes. The comparator uses
+    smolagents `CodeAgent` with its own prompt, so P2 compares two bundles,
+    not single features. The runtime figures include the 12 tuned tasks.
+    The two commits are mixed as described. No hosted model was called.
+  - **Failure taxonomy, `given_files`:** 22 failed runs; 1 labelled by rule
+    (`budget_exhausted`), 21 not yet labelled by hand. Labelling is the next
+    step. **Operator effort:** one intervention (the mount-path stop and its
+    fix, (j)); setup and review minutes are not yet logged.
 
 - **(j) Amendment: comma in a mounted file name; passes continue at a new
   commit, 2026-10-12.**
