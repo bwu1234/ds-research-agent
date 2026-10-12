@@ -1,3 +1,37 @@
+  - **Failure taxonomy, `given_files`** (`taxonomy-v1`, labelled by hand
+    2026-10-12 against the gold answers, so local only; 22 failed runs):
+    `wrong_filter_or_join` 11, `formatting` 4, `other` 6,
+    `budget_exhausted` 1 (by rule). By domain: archeology 4, astronomy 3,
+    biomedical 2, environment 2, legal 4, wildfire 7.
+    - *Agent analysis errors (the 11, plus the sign slip and the comma
+      case):* a qualifier in the question skipped (cross-state areas only,
+      frauds only, no year restriction), a column or flag not inspected
+      (`Case_excluded`, capital type), a log2 column used as a count, a
+      tool output cut at its cap that hid the one file holding the answer,
+      or an aggregation the question leaves open. For eight of the 11, a
+      change reproduces the gold on the visible data (two changes for
+      `biomedical-hard-5`; checked locally); the
+      other three are explained from the transcript only.
+    - *Not the agent's analysis, or only partly:* two tasks name a file that
+      is absent from the benchmark repository (`wildfire-hard-19`,
+      `wildfire-hard-21`; the known gap above), so they cannot be answered
+      from the files given. Three string-valued golds cannot match under the
+      local `string_approximate` equality scorer (`astronomy-easy-4`,
+      `wildfire-hard-7` have the right values in the wrong shape;
+      `wildfire-hard-18` has a prose gold). One gold appears to use a
+      boundary the question does not state (`wildfire-easy-9`). Two are not
+      root-caused (`archeology-hard-12`, `legal-hard-1`).
+    - *Consequence for later work:* these labels were read next to the gold
+      answers, and 17 of the 22 failed runs are on the 41 primary tasks (5 are on
+      the 12 sample tasks). Any
+      prompt or loop change motivated by them makes those tasks tuned, as
+      the 12 sample tasks became; a later comparison on them must say so. The
+      two unanswerable tasks and the scorer-limited string tasks also bear on
+      what counts in the all-task denominators.
+    - **Operator effort:** one intervention (the mount-path stop and its
+      fix, (j)). Review minutes for the labelling were not timed and are not
+      logged. `codeagent` failures are not yet labelled.
+
 # Implementation roadmap
 
 Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); all other milestones pending. This is a sequence of small deliverables with
@@ -1348,9 +1382,9 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     before schema 4 are NULL, meaning unknown, not the batch's revision.
     Backfill, from what the log and timestamps establish, with
     `run backfill-revision` (never overwrites a recorded value). Checked on a
-    copy of the ledger; not yet applied to the working ledger, because the
-    first run of schema-4 code upgrades it and older checkouts then refuse
-    to open it, so apply it once this has merged:
+    copy of the ledger, then applied to the working ledger on 2026-10-12
+    after this merged (counts as listed; the first run of schema-4 code
+    upgrades a ledger, and older checkouts then refuse to open it):
     `d3-dev-given_files-off` runs started before 2026-10-12T02:00 UTC →
     `e2df826` (39 runs), from then → `7afd50a` (14); `d3-dev-codeagent-off`
     → `7afd50a` (53); both `d3-probe-*` batches → `e2df826` (12 each). Other
@@ -1403,35 +1437,6 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     (`budget_exhausted`), 21 not yet labelled by hand. Labelling is the next
     step. **Operator effort:** one intervention (the mount-path stop and its
     fix, (j)); setup and review minutes are not yet logged.
-
-- **(j) Amendment: comma in a mounted file name; passes continue at a new
-  commit, 2026-10-12.**
-  - **Fault.** The `given_files` development pass (`d3-dev-given_files-off`,
-    started at `e2df826`) stopped at `legal/legal-easy-25` (task 40 of 53, 39
-    runs finished: `submitted` or `max_wall`) with a `ValueError` from
-    `_validate_mounts`: a benchmark file is named `2024_CSN_Fraud, Identity
-    Theft, and Other Reports by Military Consumers.csv`, and the runner
-    refused any comma in a container or host path. It is the only file in the
-    visible store with a comma. The harness's rule (sandbox fault stops the
-    batch, resumable) held; no run was scored 0 for it. The 12 sample tasks
-    and both probes never mount it.
-  - **Fix.** `bind_mount_arg` (`sandbox/runner.py`) writes each `--mount`
-    value as one CSV record, so a comma is a quoted field, and the two
-    comma checks are dropped (a double quote or newline is still refused).
-    Tests: offline `tests/test_mount_args.py`, and a Docker test that mounts
-    a comma-named file and checks the read audit. Prompts, tool schemas,
-    budgets, scorer, and prefix hashes are unchanged.
-  - **Decision (option B, chosen by the owner).** The freeze in (g) is
-    amended, not kept: the 39 finished `given_files` runs and the probes stay
-    at `e2df826`, and the remaining 14 `given_files` tasks and the whole
-    `codeagent` pass run at the commit that contains this entry. Reason for
-    keeping the earlier runs: the change affects only a path with a comma, and
-    no finished run mounted one, so for those runs it changes no byte of the
-    command. Limitation: the batch rows in the ledger keep `e2df826` as
-    `repo_revision` (resume does not update it); the real revision per task
-    is in `data/runs/d3-dev.log` and the run script's output. A comparison
-    that mixes the two commits is labelled so in the results entry. Rerunning
-    everything at one commit (option A, about 14 h) was the alternative.
 
 ## D4 — End to end with provenance
 
