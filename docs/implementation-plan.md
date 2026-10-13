@@ -1433,9 +1433,9 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
       fix, (j)). Review minutes for the labelling were not timed and are not
       logged. `codeagent` failures are not yet labelled.
 
-- **(l) Ollama v0.40.4-rc0 compatibility check, 2026-10-12.** The pin stays
-  at 0.35.1; nothing in `config/` or `model.server_version` changed. The rc
-  (prerelease, published the same day) carries MLX with
+- **(l) Ollama v0.40.4-rc0 compatibility check, 2026-10-12.** The tests below
+  ran beside the pinned 0.35.1 install, with no change to `config/`; the
+  pin was then moved (see "Pin moved"). The rc (prerelease, published the same day) carries MLX with
   ml-explore/mlx#4643 (ollama#18956, "Fixes" #18846, #18856, #18940) and
   ollama#18955 (compacts recurrent state after speculative rollback).
   - **Setup.** Tarball sha256 checked against the release's
