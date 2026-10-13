@@ -6,7 +6,9 @@ model:
   options:
     temperature: 0
     seed: 0
-    num_ctx: 262144       # was the server default on this machine; stated so it cannot follow free memory
+    # num_ctx: <tokens>  # set for your hardware: without it the server picks a default from
+    #                   # free memory, which can change between runs. The KV cache for a
+    #                   # large value (262144 on a 51.8 GiB machine) will not fit smaller hosts.
   keep_alive: 30m
   request_timeout_s: 900
   refuse_server_versions: ["0.40.0", "0.40.1", "0.40.2", "0.40.3"]  # MLX panics on prefix-cache reuse

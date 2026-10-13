@@ -1653,10 +1653,12 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
   (prerelease); `model.refuse_server_versions` lists versions known to fail
   (0.40.0 to 0.40.3: 0.40.1 is listed on the assumption that it shares
   0.40.0's MLX build, not from a test). The harness stamps the version on each
-  batch, refuses to resume a batch on another version, and `compare` warns on
-  mixed versions. `num_ctx` is set in the model options (262144, the
+  batch, refuses to resume a batch on another version or one with no recorded
+  version, and `compare` warns on mixed or unknown versions. The old
+  `server_version` key is still accepted in settings files and in recorded
+  batches, and ignored. `num_ctx` is set in `config/local.yaml` (262144, the
   machine's VRAM-based default on 0.35.1 and 0.40.4-rc0) so it cannot follow
-  free memory. D1 and D3 results through (k) were recorded on 0.35.1. App
+  free memory; `config/example.yaml` leaves it to the operator. D1 and D3 results through (k) were recorded on 0.35.1. App
   auto-update is off until the final v0.40.4 ships.
 
 
