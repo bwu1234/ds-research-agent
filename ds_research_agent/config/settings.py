@@ -41,9 +41,10 @@ class ModelSettings(_Strict):
     options: dict[str, Any] = Field(default_factory=dict)
     keep_alive: str = "30m"
     request_timeout_s: PositiveFloat
-    # Ollama server version runs must use (``/api/version``); a model run on
-    # any other version is refused. None disables the check.
-    server_version: str | None = None
+    # Ollama server versions (``/api/version``) a model run refuses to start
+    # on, because they are known to fail. Any other version runs and is
+    # recorded on the batch.
+    refuse_server_versions: tuple[str, ...] = ()
 
 
 class McpSettings(_Strict):

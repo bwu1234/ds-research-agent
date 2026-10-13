@@ -84,6 +84,16 @@ def ollama_version(host: str) -> str | None:
         return None
 
 
+def server_version_problem(found: str | None, refused: Sequence[str]) -> str | None:
+    """Why a batch may not start on this server, or None. A version off the
+    refusal list runs; it is recorded on the batch and compared by ``compare``."""
+    if found is None:
+        return "cannot read /api/version, so the server version cannot be recorded"
+    if found in refused:
+        return f"version {found} is in model.refuse_server_versions (known to fail)"
+    return None
+
+
 def task_keys(split: Split, name: str, unseal: bool) -> tuple[str, ...]:
     if name == "holdout" and not unseal:
         raise SystemExit("error: the holdout is sealed until D5 (--unseal-holdout)")
@@ -158,6 +168,9 @@ def resume_problems(old: Batch, new: Batch) -> list[str]:
         "system_prompt_sha256",
     )
     out = [f for f in fields if getattr(old, f) != getattr(new, f)]
+    # Rows from before the version was recorded (None) cannot be checked.
+    if old.ollama_version is not None and old.ollama_version != new.ollama_version:
+        out.append(f"Ollama version ({old.ollama_version} -> {new.ollama_version})")
     sections = ("eval", "agent", "sandbox") if new.condition in PROGRAM_CONDITIONS else ("eval",)
     for sec in sections:
         if canonical(old.config.get(sec)) != canonical(new.config.get(sec)):
@@ -195,13 +208,9 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
             f"model.request_timeout_s ({settings.model.request_timeout_s})"
         )
     model = settings.model
-    if model.server_version is not None:
-        found = ollama_version(model.host)
-        if found != model.server_version:
-            raise SystemExit(
-                f"error: Ollama at {model.host} reports {found}, but model.server_version "
-                f"is {model.server_version}; refusing to mix server versions in results"
-            )
+    problem = server_version_problem(ollama_version(model.host), model.refuse_server_versions)
+    if problem:
+        raise SystemExit(f"error: Ollama at {model.host}: {problem}")
     cap = settings.agent.max_output_tokens if agentic else ev.max_output_tokens
     options = model.options | {"num_predict": cap}
     if args.condition == codeagent_runs.CONDITION:
@@ -372,6 +381,13 @@ def cmd_compare(args: argparse.Namespace, settings: Settings) -> int:
             keys=keys,
         )
         out["subset"] = args.subset
+        other = ledger.batch(bid)
+        if base.ollama_version != other.ollama_version:
+            out["warning"] = (
+                f"Ollama versions differ: {base.ollama_version} ({base.batch_id}) vs "
+                f"{other.ollama_version} ({other.batch_id})"
+            )
+            print(f"warning: {out['warning']}", file=sys.stderr)
         print(json.dumps(out, indent=2))
     return 0
 

@@ -6,9 +6,10 @@ model:
   options:
     temperature: 0
     seed: 0
+    num_ctx: 262144       # was the server default on this machine; stated so it cannot follow free memory
   keep_alive: 30m
   request_timeout_s: 900
-  server_version: 0.35.1      # D0/D1 measured here; 0.40.x MLX panics on cache reuse
+  refuse_server_versions: ["0.40.0", "0.40.1", "0.40.2", "0.40.3"]  # MLX panics on prefix-cache reuse
 
 mcp:
   command: /ABS/PATH/rag-toolkit-dsra/.venv/bin/python
