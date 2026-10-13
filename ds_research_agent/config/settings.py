@@ -7,6 +7,7 @@ are errors, so a typo cannot silently fall back to a default.
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Any, Literal
 
@@ -18,6 +19,7 @@ from pydantic import (
     NonNegativeInt,
     PositiveFloat,
     PositiveInt,
+    model_validator,
 )
 from pydantic_settings import (
     BaseSettings,
@@ -41,9 +43,20 @@ class ModelSettings(_Strict):
     options: dict[str, Any] = Field(default_factory=dict)
     keep_alive: str = "30m"
     request_timeout_s: PositiveFloat
-    # Ollama server version runs must use (``/api/version``); a model run on
-    # any other version is refused. None disables the check.
-    server_version: str | None = None
+    # Ollama server versions (``/api/version``) a model run refuses to start
+    # on, because they are known to fail. Any other version runs and is
+    # recorded on the batch.
+    refuse_server_versions: tuple[str, ...] = ()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_legacy_server_version(cls, data: Any) -> Any:
+        # ``server_version`` was an exact pin, replaced by the refusal list
+        # above. Settings files and ledger rows written before that still
+        # carry it; it has no effect now, so it is accepted and dropped.
+        if isinstance(data, dict) and "server_version" in data:
+            return {k: v for k, v in data.items() if k != "server_version"}
+        return data
 
 
 class McpSettings(_Strict):
@@ -223,4 +236,11 @@ def load_settings(path: Path) -> Settings:
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"{path}: expected a mapping at the top level")
+    model = raw.get("model")
+    if isinstance(model, dict) and "server_version" in model:
+        warnings.warn(
+            f"{path}: model.server_version is no longer used and is ignored; "
+            "list versions to refuse in model.refuse_server_versions",
+            stacklevel=2,
+        )
     return Settings(**raw)

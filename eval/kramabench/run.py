@@ -79,9 +79,20 @@ def _git(*args: str) -> str | None:
 def ollama_version(host: str) -> str | None:
     try:
         r = httpx.get(f"{host}/api/version", timeout=5)
-        return str(r.json()["version"])
-    except httpx.HTTPError, KeyError, ValueError:
+        version = r.json()["version"]
+    except httpx.HTTPError, KeyError, TypeError, ValueError:
         return None
+    return version if isinstance(version, str) and version.strip() else None
+
+
+def server_version_problem(found: str | None, refused: Sequence[str]) -> str | None:
+    """Why a batch may not start on this server, or None. A version off the
+    refusal list runs; it is recorded on the batch and compared by ``compare``."""
+    if found is None:
+        return "cannot read /api/version, so the server version cannot be recorded"
+    if found in refused:
+        return f"version {found} is in model.refuse_server_versions (known to fail)"
+    return None
 
 
 def task_keys(split: Split, name: str, unseal: bool) -> tuple[str, ...]:
@@ -142,6 +153,14 @@ def new_batch(
     )
 
 
+def comparable_model_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    """Model settings that can change a result. The legacy exact pin and the
+    refusal list only gate a start; the version itself is compared apart."""
+    return {
+        k: v for k, v in settings.items() if k not in ("server_version", "refuse_server_versions")
+    }
+
+
 def resume_problems(old: Batch, new: Batch) -> list[str]:
     """What differs between a recorded batch and one built from the current
     settings in ways that would change its results."""
@@ -157,7 +176,15 @@ def resume_problems(old: Batch, new: Batch) -> list[str]:
         "scoring_profile",
         "system_prompt_sha256",
     )
-    out = [f for f in fields if getattr(old, f) != getattr(new, f)]
+    out = [f for f in fields if f != "model_settings" and getattr(old, f) != getattr(new, f)]
+    if comparable_model_settings(old.model_settings) != comparable_model_settings(
+        new.model_settings
+    ):
+        out.append("model_settings")
+    if old.ollama_version is None:
+        out.append("Ollama version (not recorded on the batch; start a new batch)")
+    elif old.ollama_version != new.ollama_version:
+        out.append(f"Ollama version ({old.ollama_version} -> {new.ollama_version})")
     sections = ("eval", "agent", "sandbox") if new.condition in PROGRAM_CONDITIONS else ("eval",)
     for sec in sections:
         if canonical(old.config.get(sec)) != canonical(new.config.get(sec)):
@@ -195,13 +222,9 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
             f"model.request_timeout_s ({settings.model.request_timeout_s})"
         )
     model = settings.model
-    if model.server_version is not None:
-        found = ollama_version(model.host)
-        if found != model.server_version:
-            raise SystemExit(
-                f"error: Ollama at {model.host} reports {found}, but model.server_version "
-                f"is {model.server_version}; refusing to mix server versions in results"
-            )
+    problem = server_version_problem(ollama_version(model.host), model.refuse_server_versions)
+    if problem:
+        raise SystemExit(f"error: Ollama at {model.host}: {problem}")
     cap = settings.agent.max_output_tokens if agentic else ev.max_output_tokens
     options = model.options | {"num_predict": cap}
     if args.condition == codeagent_runs.CONDITION:
@@ -372,6 +395,13 @@ def cmd_compare(args: argparse.Namespace, settings: Settings) -> int:
             keys=keys,
         )
         out["subset"] = args.subset
+        other = ledger.batch(bid)
+        if base.ollama_version is None or base.ollama_version != other.ollama_version:
+            out["warning"] = (
+                f"Ollama versions differ or are unknown: {base.ollama_version} "
+                f"({base.batch_id}) vs {other.ollama_version} ({other.batch_id})"
+            )
+            print(f"warning: {out['warning']}", file=sys.stderr)
         print(json.dumps(out, indent=2))
     return 0
 

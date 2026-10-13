@@ -1433,6 +1433,62 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
       fix, (j)). Review minutes for the labelling were not timed and are not
       logged. `codeagent` failures are not yet labelled.
 
+- **(l) Ollama v0.40.4-rc0 compatibility check, 2026-10-12.** The tests below
+  ran beside the pinned 0.35.1 install, with no change to `config/`; the
+  pin was then moved (see "Pin moved"). The rc (prerelease, published the same day) carries MLX with
+  ml-explore/mlx#4643 (ollama#18956, "Fixes" #18846, #18856, #18940) and
+  ollama#18955 (compacts recurrent state after speculative rollback).
+  - **Setup.** Tarball sha256 checked against the release's
+    `sha256sum.txt`, code signature valid (same team as the app). Run from
+    `~/ollama-rc/` on port 11435 with a private copy of the manifests and the
+    blobs symlinked; the pinned app on 11434 was not touched. M2 Max, 32 GB.
+    Harness runs used `DSRA_MODEL__HOST` and `DSRA_MODEL__SERVER_VERSION`
+    overrides. These are compatibility checks, not D1/D3 results.
+  - **Panic: not reproduced.** A tool-call turn then a cache-hit turn (the
+    pattern that crashed 4 of 4 times upstream), a third warm turn, and a
+    17.6k-token fresh prompt all completed. Over every rc run below the
+    server log has 0 `panic` / `Maximum threads` lines and no HTTP 500.
+  - **Cache reuse matches 0.35.1.**
+    `data/measurements/prefix_cache_0.40.4-rc0.json` (4 scenarios, 23
+    turns): append-only turns resume after the previous turn's output, with
+    3,109, 600 and 1,621 tokens evaluated, and turn times within about 1 s
+    of the 2026-10-05 baseline (identical-prefix follow-up 0.4 s). A
+    `rag_search` or an unrelated request between turns does not evict it.
+  - **Agent smoke** (`given_files-smoke-rc0404`, the two smoke tasks,
+    think off): both submitted, reproduced, and passed observed access;
+    answer score 0.75, as `-d2d`. Model requests per run 5 and 14 (`-d2d`:
+    5 and 12). The wrong legal run is unlabelled; it matches `-d2d`'s known
+    upstream-typo case, but its trace was not read.
+  - **Drift control.** The 17 recorded `-d2d` requests (0.35.1), resent
+    unchanged at temperature 0 and seed 0, two passes each. Tool calls
+    identical to the recording / text identical / pass 1 equal to pass 2:
+    rc 8 and 8 / 13 and 10 / 9 of 17; 0.35.1 itself 9 and 7 / 12 and 10 /
+    11 of 17. Steps 0 and 1 of each task match on the rc; mismatches begin at
+    step 2 on both servers. Output lengths differ by 1 to 115 tokens. So
+    0.35.1 does not reproduce its own recordings either, and the
+    difference between versions is not distinguishable from that
+    nondeterminism with this sample. Replay (recorded responses, no model)
+    is the only exact reproduction. Data:
+    `data/measurements/drift_rc_run{1,2}.json`,
+    `drift_0.35.1_run{1,2}.json` (benchmark-derived; stay out of Git).
+  - **Not done.** MLX memory growth over a long conversation (#18955's
+    claim) was not measured; the 12-task sample and development passes were
+    not run on the rc; the change in agent-level accuracy is unknown.
+  - **Pin moved, 2026-10-12, at the user's decision** (the recommendation
+    above was to wait for the final v0.40.4). `/Applications/Ollama.app` is
+    now 0.40.4-rc0 (dmg sha256 checked, notarized), app auto-update turned
+    off in the app's settings, `model.server_version` (an exact pin) set to
+    `0.40.4-rc0`; replaced the same day by `refuse_server_versions` (see
+    Decided). The reproducer passed again
+    on port 11434, manifests unchanged. Rollback copy of the 0.35.1 app, the
+    manifests, and the settings DB: `~/ollama-rc/backup-0.35.1/`.
+  - **Consequence.** D1 and D3 results through (k) are on 0.35.1; any new
+    batch on 0.40.4-rc0 is a different server version and is not pooled with
+    them. Step-level output is not reproducible between runs on either
+    version, so a rerun on the new pin is a new baseline, not a replication.
+  - **Next.** On the final v0.40.4, rerun the reproducer, the cache script,
+    and the smoke batch, and change the pin to it.
+
 ## D4 — End to end with provenance
 
 - Combine D2 and D3. The answer object records the files read (path and hash),
@@ -1593,9 +1649,17 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
   2026-10-09; see D3 progress).
 - Persistent kernel: a minimal REPL behind a trusted bridge over the
   container's stdio, not ipykernel (D3, 2026-10-09; see D3 progress).
-- Ollama stays at 0.35.1, checked against `model.server_version` before
-  every batch, until a release fixes MLX prefix-cache reuse (D3,
-  2026-10-10; see D3 progress, d2).
+- Ollama version is recorded, not pinned (2026-10-12). Ollama runs 0.40.4-rc0
+  (prerelease); `model.refuse_server_versions` lists versions known to fail
+  (0.40.0 to 0.40.3: 0.40.1 is listed on the assumption that it shares
+  0.40.0's MLX build, not from a test). The harness stamps the version on each
+  batch, refuses to resume a batch on another version or one with no recorded
+  version, and `compare` warns on mixed or unknown versions. The old
+  `server_version` key is still accepted in settings files and in recorded
+  batches, and ignored. `num_ctx` is set in `config/local.yaml` (262144, the
+  machine's VRAM-based default on 0.35.1 and 0.40.4-rc0) so it cannot follow
+  free memory; `config/example.yaml` leaves it to the operator. D1 and D3 results through (k) were recorded on 0.35.1. App
+  auto-update is off until the final v0.40.4 ships.
 
 
 - The main model is `qwen3.8:27b-mlx` through Ollama.
