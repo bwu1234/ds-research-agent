@@ -1,37 +1,3 @@
-  - **Failure taxonomy, `given_files`** (`taxonomy-v1`, labelled by hand
-    2026-10-12 against the gold answers, so local only; 22 failed runs):
-    `wrong_filter_or_join` 11, `formatting` 4, `other` 6,
-    `budget_exhausted` 1 (by rule). By domain: archeology 4, astronomy 3,
-    biomedical 2, environment 2, legal 4, wildfire 7.
-    - *Agent analysis errors (the 11, plus the sign slip and the comma
-      case):* a qualifier in the question skipped (cross-state areas only,
-      frauds only, no year restriction), a column or flag not inspected
-      (`Case_excluded`, capital type), a log2 column used as a count, a
-      tool output cut at its cap that hid the one file holding the answer,
-      or an aggregation the question leaves open. For eight of the 11, a
-      change reproduces the gold on the visible data (two changes for
-      `biomedical-hard-5`; checked locally); the
-      other three are explained from the transcript only.
-    - *Not the agent's analysis, or only partly:* two tasks name a file that
-      is absent from the benchmark repository (`wildfire-hard-19`,
-      `wildfire-hard-21`; the known gap above), so they cannot be answered
-      from the files given. Three string-valued golds cannot match under the
-      local `string_approximate` equality scorer (`astronomy-easy-4`,
-      `wildfire-hard-7` have the right values in the wrong shape;
-      `wildfire-hard-18` has a prose gold). One gold appears to use a
-      boundary the question does not state (`wildfire-easy-9`). Two are not
-      root-caused (`archeology-hard-12`, `legal-hard-1`).
-    - *Consequence for later work:* these labels were read next to the gold
-      answers, and 17 of the 22 failed runs are on the 41 primary tasks (5 are on
-      the 12 sample tasks). Any
-      prompt or loop change motivated by them makes those tasks tuned, as
-      the 12 sample tasks became; a later comparison on them must say so. The
-      two unanswerable tasks and the scorer-limited string tasks also bear on
-      what counts in the all-task denominators.
-    - **Operator effort:** one intervention (the mount-path stop and its
-      fix, (j)). Review minutes for the labelling were not timed and are not
-      logged. `codeagent` failures are not yet labelled.
-
 # Implementation roadmap
 
 Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); all other milestones pending. This is a sequence of small deliverables with
@@ -1433,10 +1399,39 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     smolagents `CodeAgent` with its own prompt, so P2 compares two bundles,
     not single features. The runtime figures include the 12 tuned tasks.
     The two commits are mixed as described. No hosted model was called.
-  - **Failure taxonomy, `given_files`:** 22 failed runs; 1 labelled by rule
-    (`budget_exhausted`), 21 not yet labelled by hand. Labelling is the next
-    step. **Operator effort:** one intervention (the mount-path stop and its
-    fix, (j)); setup and review minutes are not yet logged.
+  - **Failure taxonomy, `given_files`** (`taxonomy-v1`, labelled by hand
+    2026-10-12 against the gold answers, so local only; 22 failed runs):
+    `wrong_filter_or_join` 11, `formatting` 4, `other` 6,
+    `budget_exhausted` 1 (by rule). By domain: archeology 4, astronomy 3,
+    biomedical 2, environment 2, legal 4, wildfire 7.
+    - *Agent analysis errors (the 11, plus the sign slip and the comma
+      case):* a qualifier in the question skipped (cross-state areas only,
+      frauds only, no year restriction), a column or flag not inspected
+      (`Case_excluded`, capital type), a log2 column used as a count, a
+      tool output cut at its cap that hid the one file holding the answer,
+      or an aggregation the question leaves open. For eight of the 11, a
+      change reproduces the gold on the visible data (two changes for
+      `biomedical-hard-5`; checked locally); the
+      other three are explained from the transcript only.
+    - *Not the agent's analysis, or only partly:* two tasks name a file that
+      is absent from the benchmark repository (`wildfire-hard-19`,
+      `wildfire-hard-21`; the known gap above), so they cannot be answered
+      from the files given. Three string-valued golds cannot match under the
+      local `string_approximate` equality scorer (`astronomy-easy-4`,
+      `wildfire-hard-7` have the right values in the wrong shape;
+      `wildfire-hard-18` has a prose gold). One gold appears to use a
+      boundary the question does not state (`wildfire-easy-9`). Two are not
+      root-caused (`archeology-hard-12`, `legal-hard-1`).
+    - *Consequence for later work:* these labels were read next to the gold
+      answers, and 17 of the 22 failed runs are on the 41 primary tasks (5 are on
+      the 12 sample tasks). Any
+      prompt or loop change motivated by them makes those tasks tuned, as
+      the 12 sample tasks became; a later comparison on them must say so. The
+      two unanswerable tasks and the scorer-limited string tasks also bear on
+      what counts in the all-task denominators.
+    - **Operator effort:** one intervention (the mount-path stop and its
+      fix, (j)). Review minutes for the labelling were not timed and are not
+      logged. `codeagent` failures are not yet labelled.
 
 ## D4 — End to end with provenance
 
