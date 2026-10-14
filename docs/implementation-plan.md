@@ -1489,6 +1489,49 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
   - **Next.** On the final v0.40.4, rerun the reproducer, the cache script,
     and the smoke batch, and change the pin to it.
 
+- **(m) 12-task sample and development pass on 0.40.4-rc0, 2026-10-13/14.**
+  Batches `rc0404-sample-{given_files,codeagent}` (12 tasks) and
+  `rc0404-dev-{given_files,codeagent}` (53 tasks), thinking off, temperature
+  0, seed 0, one repeat, `local-deterministic-v1`, commit `8a2b75f`. A new
+  baseline on a different server version: not pooled with (k). All four
+  replay with 0 differences. `rc0404-dev-codeagent` was stopped by hand
+  after task 25 and resumed with `--resume`; the unfinished task was redone
+  from scratch and the earlier log is `rc0404-dev-codeagent.part1.log`.
+  - **Dev, all 53:** `given_files` answer score 0.645, strict 58.5%;
+    `codeagent` 0.569, 49.1%. **Sample, 12:** `given_files` 0.576, 50.0%;
+    `codeagent` 0.492, 41.7%.
+  - **`given_files` minus `codeagent`, 41 untuned tasks:** strict +9.8
+    points (interval -4.9 to +24.4), answer score +7.4 (-5.7 to +21.1).
+    Still inconclusive against the +10 criterion, as in (k) (+4.9).
+  - **Run-to-run check (registered in (g)):** strict outcome changed on 3 of
+    the 12 sample tasks for `given_files` and 2 of 12 for `codeagent`,
+    against the 0.35.1 development batches. The rule (more than 2 of 12 in
+    either condition) is met. The comparison also changes the server
+    version, so it cannot separate nondeterminism from version drift; the
+    drift control above could not either. The rule is applied as written.
+  - **Second full pass of both conditions** (declared extra budget, about
+    11 h): `rc0404-dev-pass2-{given_files,codeagent}`, 2026-10-14 02:41 to
+    10:59 UTC (`given_files` 3.5 h, `codeagent` 4.8 h), same settings, same
+    commit. Both replay with 0 differences.
+  - **Pass 2 alone, all 53:** `given_files` answer score 0.678, strict
+    62.3%; `codeagent` 0.596, 54.7%. **Same-server pass-to-pass strict
+    flips:** `given_files` 4 of 53 (1 of the 12 sample tasks), `codeagent`
+    7 of 53 (3 of 12). So the 3 of 12 in the cross-version check above is
+    not larger than same-server nondeterminism: `codeagent` flips 3 of 12
+    with the version held fixed, and `given_files` flips fewer.
+  - **Two-pass average (per-task mean over both passes), `given_files`
+    minus `codeagent`, 41 untuned tasks:** strict +8.5 points (interval
+    -3.7 to +20.7), answer score +7.8 (-4.3 to +20.1). All 53: strict +8.5
+    (-1.9 to +18.9), score +7.9 (-2.0 to +17.8). Below the +10 criterion and
+    the intervals include 0: **P2 stays inconclusive**, now on 0.40.4-rc0
+    with the registered extra budget spent. The point estimate favours the
+    custom loop in every comparison made (k, pass 1, pass 2, average).
+    Averaging narrows run-to-run noise only, not task-sampling uncertainty.
+    Parent-task bootstrap as in `report.compare`; computed with a one-off
+    script (not in the repo), because `compare` takes two batches.
+  - **Not done:** failure labels for the failed runs of these batches
+    (22 `given_files`, 26 `codeagent` on the dev split) are not applied.
+
 ## D4 — End to end with provenance
 
 - Combine D2 and D3. The answer object records the files read (path and hash),
