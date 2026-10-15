@@ -23,7 +23,12 @@ development tasks; the registered paired comparison is decided in
 `docs/implementation-plan.md` (D3 progress (k)): execution beats inlined files,
 and the custom loop versus `codeagent` is inconclusive. Context stays
 append-only (no compaction), and the sandbox records each container's peak
-memory. D2 is next. The harness refuses an Ollama version listed in
+memory. D2 is in progress: profiler version 2 gives 1,741 of the 1,742
+benchmark files content cards, each catalogue version has its own config,
+corpus, and index, and retrieval-only discovery scoring
+(`eval/kramabench/discovery.py`, no model) has BM25 and rag-toolkit baselines
+(D2 progress (a)). Group cards and agentic discovery are not built yet.
+rag-toolkit is pinned at `0f6eb38`. The harness refuses an Ollama version listed in
 `model.refuse_server_versions` (0.40.0 to 0.40.3 crash on prefix-cache reuse),
 records the version on every batch, stops a batch if the version changes
 between runs (auto-update stays on), refuses to resume a batch on a different
@@ -68,6 +73,11 @@ cp config/example.yaml config/local.yaml # then set absolute paths
 uv run python -m ds_research_agent.catalogue --config config/local.yaml build
 uv run python -m ds_research_agent.catalogue --config config/local.yaml index
 uv run pytest -m live -s                 # local model + live rag-toolkit server
+# D2 benchmark catalogues: a copy of local.yaml per card version, with its own
+# catalogue paths, corpus, and rag_service paths (config/local.kramabench*.yaml)
+uv run python -m ds_research_agent.catalogue --config config/local.kramabench-v2.yaml build
+uv run python -m ds_research_agent.catalogue --config config/local.kramabench-v2.yaml index   # ~15 min; writes index.log
+uv run python -m eval.kramabench.discovery --config config/local.kramabench-v2.yaml --ranker rag --mode hybrid --scope domain --out data/measurements/discovery/rag-hybrid-v2-domain.json   # or --ranker bm25; --scope pooled
 # KramaBench at the pinned commit, split into agent-visible and evaluator stores
 uv run python -m eval.kramabench.fetch --config config/local.yaml fetch   # or verify
 uv run python scripts/measure_tool_calls.py --config config/local.yaml --out data/measurements/tool_calls.json

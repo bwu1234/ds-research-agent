@@ -19,7 +19,7 @@ intervals include zero.
 | D0 Scaffold: config, model client, MCP retrieval adapter, dataset-card profiler | Done |
 | D1 Evaluation harness: deterministic scorer, frozen split, SQLite run ledger, replay, baselines | Done |
 | D3 Sandbox and given-files analysis: restricted container, read audit, persistent kernel, agent loop, rerun verifier, comparator | Done |
-| D2 Catalogue expansion and discovery | Planned |
+| D2 Catalogue expansion and discovery: cards for 1,741 of 1,742 files and retrieval-only baselines done; group cards and agentic discovery next | In progress |
 | D4 End to end: search the catalogue, then analyse, with provenance | Planned |
 | D5 Ablations and sealed-holdout evaluation | Planned |
 
@@ -98,8 +98,12 @@ Indexing is a separate job.
 
 ## Next
 
-D2 expands the catalogue to every benchmark file and measures discovery
-(file recall) without the model. D4 then runs end to end: search the
+D2 has expanded the catalogue to every benchmark file and measured
+single-shot discovery without the model. With the task's domain as a filter,
+rag-toolkit hybrid search retrieves on average 76% of a development task's input files in
+its top 10 cards and all of them for 68% of tasks. Astronomy, whose tasks
+select dozens of near-identical files, is the weak domain, so group cards and
+agentic discovery come next. D4 then runs end to end: search the
 catalogue for the input files, then analyse them, with provenance. D5 runs focused ablations and the sealed-holdout
 evaluation, and the first release ends with a write-up and a synthetic
 provenance demo.

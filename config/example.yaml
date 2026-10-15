@@ -36,7 +36,7 @@ catalogue:
 
 rag_service:
   checkout: /ABS/PATH/rag-toolkit-dsra
-  revision: b7434cf8b98f5843f3810b2c763f1732b72d770d
+  revision: 0f6eb38229d952a2c0a9c9130ac80dcf74b5abc6
   python: /ABS/PATH/rag-toolkit-dsra/.venv/bin/python
   base_config: /ABS/PATH/rag-toolkit-dsra/rag/config/config.yaml
   generated_config: /ABS/PATH/ds-research-agent/data/fixture/rag.yaml

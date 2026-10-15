@@ -111,6 +111,30 @@ Implemented in `ds_research_agent/catalogue/profiler.py`, `PROFILER_VERSION = 1`
   directory, paths containing newlines) get no card and are listed in the
   manifest with a reason.
 
+### D2 additions (`PROFILER_VERSION = 2`)
+
+Same front matter and identity; more formats get content instead of a
+minimal card. Over the 1,742 KramaBench files, 1,741 get content cards; the
+one `.cdf` file stays `unsupported`.
+
+- **xlsx** (openpyxl, read-only): one table per sheet, header from the first
+  non-empty row, statistics from the first `sample_rows` rows, row count from
+  the sheet's declared dimension.
+- **GeoPackage** (SQLite, opened read-only and immutable): one table per
+  `gpkg_contents` entry, with geometry and other blob columns listed but not
+  sampled, and byte values rendered as `<N bytes>`.
+- **npz**: each array's name, dtype, and shape from its `.npy` header,
+  without loading data.
+- **XML sidecars** (defusedxml, so entity-expansion and external-entity
+  inputs are refused): leaf elements as `path: text` lines.
+- **HTML**: title, table count, and visible text (scripts and styles dropped).
+- **Text formats** (txt, dat, lst, tle, sp3, py): encoding, total line count,
+  and the first `catalogue.text_preview_lines` lines, decoded from a bounded
+  head of the file.
+
+Card text is untrusted file content. Previews are clipped per line, and
+code-fence and front-matter injection are tested on synthetic files.
+
 ### Group cards
 
 Some collections are families of similar files: astronomy has 1,556 files,

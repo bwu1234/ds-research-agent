@@ -49,7 +49,7 @@ flowchart TD
 ## Agent tools
 
 Proposed tools (none exist yet; the tool-call validation and repair policy in
-`ds_research_agent/agent/tool_calls.py` does). At rag-toolkit `b7434cf` the MCP server
+`ds_research_agent/agent/tool_calls.py` does). At rag-toolkit `0f6eb38` (the pin; its MCP code is unchanged since `b7434cf`) the MCP server
 offers `rag_search`, `rag_list_corpora`, `rag_list_documents`,
 `rag_read_document`, and `rag_find`. Only `rag_search` backs an agent tool;
 `rag_list_documents` enumerates the whole catalogue and `rag_read_document`

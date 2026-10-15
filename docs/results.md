@@ -109,7 +109,9 @@ decides it (budget exhausted, by rule); the rest are not yet labelled.
   spans two commits, documented in plan entry D3 (j).
 - A third of inlined-files runs hit the output cap, so that baseline is a
   floor for what the model could do with more tokens.
-- Given files only: catalogue discovery (D2/D4) is not yet evaluated.
+- Given files only: the agent has not yet searched the catalogue itself. D2
+  measures retrieval-only discovery so far (implementation plan, D2 progress
+  (a)); end-to-end discovery is D4.
 - These figures describe this agent with this local model. They are not
   comparable to published KramaBench scores of other systems, which use
   different models and judged scoring.
