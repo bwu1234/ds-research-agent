@@ -44,6 +44,7 @@ def cat(tmp_path: Path) -> CatalogueSettings:
         max_example_values=1,
         max_cell_chars=10,
         max_json_bytes=10,
+        text_preview_lines=2,
     )
 
 

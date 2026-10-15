@@ -57,14 +57,9 @@ or from published KramaBench scores of other systems.
 
 ## Implementation conventions
 
-Stack: Python 3.14 managed by uv, typed public APIs (mypy strict), pydantic
-boundary schemas, SQLite for run records (planned), stdio MCP, and Ollama for
-the model. Versions are pinned in `pyproject.toml` and `uv.lock`.
-
 Verified commands:
 
 ```bash
-uv sync                                  # create .venv from uv.lock
 uv run pytest                            # offline checks only (default)
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 cp config/example.yaml config/local.yaml # then set absolute paths
