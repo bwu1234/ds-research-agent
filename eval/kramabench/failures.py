@@ -113,20 +113,32 @@ def _clip(text: str, limit: int) -> str:
 
 def render_run(ledger: Ledger, run: Run, task: Task, limit: int = 3000) -> str:
     """The run as the model saw it, then cell records, rerun, and verdicts."""
-    sc = ledger.score(run.run_id, PROFILE)
+    discovery = run.condition == "discovery_agent"
+    sc = ledger.score(run.run_id, "discovery-v1" if discovery else PROFILE)
     out = [
         f"# {run.run_id}",
         f"task {task.key} ({task.domain}, {task.difficulty}, answer type {task.answer_type})",
         f"stop {run.stop_reason}  wall {run.wall_s}s  error {run.error}",
         f"score {sc.score if sc else None}  strict {sc.strict if sc else None}  "
         f"verified {sc.verified_success if sc else None}",
-        f"gold (evaluator only): {json.dumps(task.gold.answer)}",
-        "resolution: "
-        + "; ".join(
-            f"{e['entry']} -> {e['tier']}" for e in run.input_manifest.get("resolution", [])
-        ),
     ]
-    steps = ledger.steps(run.run_id)
+    if discovery:
+        a = ledger.answer(run.run_id)
+        chosen = set(a.value.get("files", [])) if a and isinstance(a.value, dict) else set()
+        gold = set(task.data_sources)
+        out.append(f"data_sources (evaluator only): {sorted(gold)}")
+        out.append(f"chosen ({len(chosen)}): " + ", ".join(sorted(chosen)[:20]))
+    else:
+        out.append(f"gold (evaluator only): {json.dumps(task.gold.answer)}")
+        out.append(
+            "resolution: "
+            + "; ".join(
+                f"{e['entry']} -> {e['tier']}" for e in run.input_manifest.get("resolution", [])
+            )
+        )
+    # Discovery runs also record searches as steps; the transcript is the
+    # last model request with its response.
+    steps = [st for st in ledger.steps(run.run_id) if st.kind == "model"]
     if steps:
         last = steps[-1]
         msgs = list(last.request["messages"])
