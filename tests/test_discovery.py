@@ -7,6 +7,8 @@ import asyncio
 from eval.kramabench.discovery import (
     Bm25Ranker,
     bootstrap_mean,
+    collapse,
+    collapse_map,
     summarise,
     task_metrics,
     tokens,
@@ -67,3 +69,73 @@ def test_summary_excludes_tasks_without_gold_files_but_lists_them() -> None:
     s = summarise(rows)
     assert s["pooled"]["tasks"] == 1 and s["unscored_tasks"] == ["t2"]
     assert s["unresolved_entries"] == 1
+
+
+def test_file_metrics_ignore_group_cards_and_groups_are_counted() -> None:
+    m = task_metrics(["g.md", "a.md"], MEMBERS, ["x", "y", "a"], frozenset({"g.md"}))
+    assert m["recall@1"] == 2 / 3 and m["file_recall@1"] == 0.0
+    assert m["complete@5"] == 1.0 and m["file_recall@5"] == 1 / 3
+    assert m["groups@1"] == 1.0 and m["groups@5"] == 1.0
+    assert "file_recall@1" not in task_metrics(["a.md"], MEMBERS, ["a"])
+
+
+def test_paired_differences_use_tasks_scored_in_both() -> None:
+    from eval.kramabench.discovery_paired import paired
+
+    a = [
+        {"task": "t1", "domain": "d", "gold": 2, "recall@5": 1.0},
+        {"task": "t2", "domain": "d", "gold": 1, "recall@5": 0.5},
+        {"task": "t3", "domain": "d", "gold": 0},
+    ]
+    b = [
+        {"task": "t1", "domain": "d", "gold": 2, "recall@5": 0.5},
+        {"task": "t2", "domain": "d", "gold": 1, "recall@5": 0.5},
+    ]
+    out = paired(a, b, ["recall@5", "complete@10"])
+    assert out["tasks"] == 2 and out["recall@5"][0] == 0.25
+    assert "complete@10" not in out
+
+
+def test_collapse_shows_a_grouped_file_as_its_group_once() -> None:
+    to_group = {"a.md": "g.md", "b.md": "g.md"}
+    assert collapse(["c.md", "b.md", "g.md", "a.md", "d.md"], to_group) == ["c.md", "g.md", "d.md"]
+
+
+def test_collapse_map_prefers_the_largest_group() -> None:
+    from ds_research_agent.catalogue import CatalogueEntry, CatalogueGroup, Manifest
+
+    def e(p: str) -> CatalogueEntry:
+        return CatalogueEntry(
+            catalogue_id=p,
+            domain="d",
+            file_path=p,
+            size=1,
+            file_hash="sha256:0",
+            format="csv",
+            document_id=f"{p}.md",
+            card_hash="sha256:0",
+            profiler_version=3,
+            parse_status="ok",
+        )
+
+    def g(gid: str, members: tuple[str, ...]) -> CatalogueGroup:
+        return CatalogueGroup(
+            group_id=gid,
+            domain="d",
+            rules=("pattern",),
+            member_ids=members,
+            directory="d",
+            format="csv",
+            document_id=f"{gid}.md",
+            card_hash="sha256:0",
+            profiler_version=3,
+        )
+
+    m = Manifest(
+        profiler_version=3,
+        corpus="c",
+        entries=[e("x"), e("y"), e("z")],
+        skipped=[],
+        groups=[g("small", ("x", "y")), g("big", ("x", "y", "z"))],
+    )
+    assert collapse_map(m) == {"x.md": "big.md", "y.md": "big.md", "z.md": "big.md"}

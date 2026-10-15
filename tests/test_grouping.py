@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+from ds_research_agent.catalogue.grouping import (
+    Schema,
+    common_directory,
+    families,
+    heading,
+    name_pattern,
+    partition,
+)
 from ds_research_agent.catalogue.models import CatalogueEntry
-from eval.kramabench.grouping import RULES, Schema, partition, selection
+from eval.kramabench.grouping import selection
 
 
 def entry(path: str, fmt: str = "csv") -> CatalogueEntry:
@@ -39,14 +47,14 @@ SIZES = {f: 10 for f in FILES}
 
 
 def test_rules_partition_into_groups_of_two_or_more() -> None:
-    assert partition(ENTRIES, SCHEMAS, RULES["directory"]) == [
+    assert partition(ENTRIES, SCHEMAS, "directory") == [
         ("d/a/notes.csv", "d/a/t-2001.csv", "d/a/t-2002.csv", "d/a/t-2003.csv"),
         ("d/b/single.txt", "d/b/t-2004.csv"),
     ]
     family = ("d/a/t-2001.csv", "d/a/t-2002.csv", "d/a/t-2003.csv", "d/b/t-2004.csv")
-    assert partition(ENTRIES, SCHEMAS, RULES["schema"]) == [family]
-    assert partition(ENTRIES, SCHEMAS, RULES["pattern"]) == [family]
-    assert partition(ENTRIES, SCHEMAS, RULES["directory+schema"]) == [family[:3]]
+    assert partition(ENTRIES, SCHEMAS, "schema") == [family]
+    assert partition(ENTRIES, SCHEMAS, "pattern") == [family]
+    assert partition(ENTRIES, SCHEMAS, "directory+schema") == [family[:3]]
 
 
 def test_policies_count_selections_and_extra_files() -> None:
@@ -95,4 +103,29 @@ def test_pattern_needs_a_digit_run_and_a_shared_schema() -> None:
         "d/o/day1.sp3": None,
         "d/p/day2.sp3": None,
     }
-    assert partition(entries, schemas, RULES["pattern"]) == [("d/o/day1.sp3", "d/p/day2.sp3")]
+    assert partition(entries, schemas, "pattern") == [("d/o/day1.sp3", "d/p/day2.sp3")]
+
+
+def test_identical_member_sets_from_two_rules_are_one_group() -> None:
+    fams = families(ENTRIES, SCHEMAS, ["schema", "pattern"])
+    assert len(fams) == 1
+    (fam,) = fams
+    assert fam.rules == ("pattern", "schema") and fam.domain == "d"
+    assert fam.directory == "d" and fam.group_id.startswith("d/g-")
+    # The ID depends only on the members, so it is stable across builds.
+    assert families(ENTRIES, SCHEMAS, ["pattern"])[0].group_id == fam.group_id
+
+
+def test_name_pattern_and_common_directory() -> None:
+    names = ["sp3-wu002-20140131.sp3", "sp3-wu010-20140203.sp3", "sp3-wu001-20140128.sp3"]
+    # Constant runs stay literal; varying ones are masked, with their range.
+    assert name_pattern(names) == ("sp3-wu#-#.sp3", [("001", "010"), ("20140128", "20140203")])
+    assert name_pattern(["a1.csv", "b2.csv"]) is None
+    assert common_directory(["d/x/1/a", "d/x/2/b"]) == "d/x"
+
+
+def test_heading_names_a_family_by_pattern_affixes_or_directory() -> None:
+    assert heading(["t-2001.csv", "t-2002.csv"], "d/a") == "t-#.csv"
+    beaches = ["city_point_beach_datasheet.csv", "malibu_beach_datasheet.csv"]
+    assert heading(beaches, "env/input") == "*_beach_datasheet.csv"
+    assert heading(["Alabama.csv", "Wyoming.csv"], "legal/State data") == "State data/*.csv"

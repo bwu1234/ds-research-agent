@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); group cards and agentic discovery next); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); profiler v3 with group cards and group-level retrieval 2026-10-15, see D2 progress (c); group-ID selection and agentic discovery next); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -798,6 +798,100 @@ agentic version are reported with their time cost.
     detection), a v3 corpus and index, and group-level retrieval scoring
     against D2 progress (a). Then `read_card` and `run_python` accept group
     IDs with filters, then agentic discovery.
+- **(c) Profiler v3, group cards, and group-level retrieval, 2026-10-15.**
+  Retrieval-only again: no generative model is called. Same 53 development
+  tasks, queries, and gold sets as (a); the data is in
+  `data/measurements/discovery/` (`v3-*`, `grouping-v3.json`,
+  `paired-v3-2026-10-15.json`), kept local.
+  - **Profiler version 3** (`PROFILER_VERSION = 3`). CSV title rows: a first
+    row with one non-empty cell is a title, and the header is the first
+    filled, non-numeric row within `catalogue.csv_title_scan_rows` (5). It
+    applies to 137 files (the eight beach datasheets and 129 of 131 legal
+    CSVs), whose columns now come from the real header. Group cards are
+    written under `<domain>/_groups/` for the families of
+    `catalogue.group_rules`, and member file cards name their groups. The
+    grouping rules now live in `ds_research_agent/catalogue/grouping.py`,
+    and the oracle (`eval.kramabench.grouping`) imports them, so it
+    measures what the profiler builds. Build: 50 s, 300 MB peak RSS; 1,742
+    file cards (median 1.6 KB) and 21 group cards (1.2–12.9 KB, median
+    3.7 KB). The fixture catalogue was rebuilt as v3 (one group, Utah).
+  - **The schema rule stops at a directory.** With title rows removed,
+    legal's identity-theft and fraud state tables have the same columns, and
+    *schema* merged them into one 104-member group. Rerun on v3, the oracle
+    favoured keeping them apart: *directory+schema|pattern*, 21 groups,
+    needs 4.64 [1.96, 9.2] whole-group selections per task (96% within 10)
+    against 7.51 [3.1, 12.6] (91%) for *schema|pattern*, with the same
+    range count (1.79 against 1.77, all tasks within 10). They are different
+    measures that share column names. `group_rules: [directory+schema,
+    pattern]`. Title rows also helped environment: 3.0 whole-group
+    selections per task, down from 3.8. Six of the eight beach datasheets
+    now form two groups (4 and 2, split by station count); two stay
+    ungrouped.
+  - **Index**, Ollama otherwise idle: 1,763 cards to 9,004 chunks (2,045
+    duplicates) in 872 s at `0f6eb38`. Search latency is unchanged: first
+    query 9.0–11.7 s, warm median 1.0–1.1 s.
+  - **Ranked lists showed two problems.** In astronomy, the 715 near-
+    identical member cards of Sat_Density and OMNI2 fill all 20 passages,
+    so their own group card is not returned (easy-3, hard-10); small
+    families' group cards do rank first (geomag, GOES). In wildfire, two-
+    member groups take slots: a group card and its members' file cards
+    share the 20-passage budget, so fewer distinct cards come back (hard-18
+    returned 6) and gold files fall out of the top 10 (easy-3, hard-18,
+    hard-21). **Collapse** addresses the first: a grouped file's card is
+    shown as its largest group, at the first rank any member reached, as a
+    search tool presenting families would. It is a presentation step over
+    the same ranking (`--collapse`; `--rescore` replays stored rankings), so
+    it adds no search time.
+  - **Results, domain filter** (the primary condition). Group cards count as
+    retrieving their members; `file recall` counts file cards only.
+
+    | Ranker | Cards | recall@5 | recall@10 | complete@10 | file recall@10 |
+    |---|---|---|---|---|---|
+    | BM25 | v2 | 0.60 [0.51, 0.70] | 0.70 [0.61, 0.80] | 0.57 [0.45, 0.68] | — |
+    | BM25 | v3 | 0.65 [0.56, 0.75] | 0.77 [0.68, 0.86] | 0.66 [0.55, 0.77] | 0.67 |
+    | BM25 + collapse | v3 | 0.80 [0.71, 0.88] | 0.87 [0.80, 0.93] | 0.77 [0.68, 0.87] | 0.48 |
+    | rag hybrid | v2 | 0.67 [0.58, 0.76] | 0.76 [0.68, 0.84] | 0.68 [0.58, 0.77] | — |
+    | rag hybrid | v3 | 0.66 [0.57, 0.74] | 0.80 [0.72, 0.87] | 0.64 [0.53, 0.76] | 0.71 |
+    | **rag hybrid + collapse** | **v3** | **0.81 [0.73, 0.89]** | **0.89 [0.83, 0.95]** | **0.74 [0.64, 0.83]** | 0.49 |
+
+    Paired, mean [95% interval]:
+    - rag hybrid, v3 minus v2, without collapse: recall@10 +0.03 [−0.02,
+      +0.10], complete@10 −0.04 [−0.11, +0.04]. Group cards alone do not
+      help the primary condition.
+    - With collapse, v3 minus v2: recall@5 +0.15 [+0.07, +0.22], recall@10
+      +0.13 [+0.05, +0.22], complete@10 +0.06 [−0.04, +0.17].
+    - Collapse alone (v3): recall@10 +0.09 [+0.04, +0.16], complete@10
+      +0.09 [+0.02, +0.17].
+    - BM25 + collapse, v3 minus v2 BM25: recall@10 +0.17 [+0.09, +0.24],
+      complete@10 +0.21 [+0.13, +0.28]. rag over BM25, both v3 with
+      collapse: recall@10 +0.02 [−0.06, +0.11], complete@10 −0.04 [−0.17,
+      +0.08]. The (a) advantage of rag over BM25 on complete sets does not
+      survive group cards.
+  - **By domain** (rag hybrid + collapse, recall@10 / complete@10, v2 in
+    brackets): astronomy 0.59 / 0.17 (0.29 / 0.17), environment 0.90 / 0.70
+    (0.60 / 0.40), legal 0.97 / 0.87 (0.77 / 0.73), wildfire 0.83 / 0.64
+    (0.92 / 0.82); archaeology and biomedical stay 1.00. Astronomy's
+    complete sets still fail: its tasks need two or three families plus
+    standalone files at once. Wildfire is worse than v2 because of the
+    two-member groups above.
+  - **Pooled search is not deterministic.** Two identical v3 pooled hybrid
+    runs ranked 13 of 53 tasks differently in the top 10 (recall@10 0.71 and
+    0.70; a first run gave 0.76). Domain-filtered runs were identical across
+    three runs. The cause is not established; approximate nearest-neighbour
+    search over many near-identical embeddings is a candidate. The pooled
+    rows of (a) are single runs with the same exposure. Pooled v3 hybrid +
+    collapse, from the stored run: recall@10 0.78 [0.70, 0.86], complete@10
+    0.58 [0.47, 0.70].
+  - **Limitations.** Under collapse, a retrieved group counts all its
+    members, so recall is reachability; the extra members are removed only at
+    selection, with a member filter, which is not built. File-card recall
+    falls (0.71 to 0.49) because collapse replaces member cards. Collapse
+    uses one fixed rule (largest group); this was chosen after seeing the
+    ranked lists, on development tasks.
+  - **Next.** Decide collapse as the `search_catalogue` presentation, and
+    whether two-member groups earn their slots (wildfire). Then `read_card`
+    and `run_python` accept group IDs with member filters, then agentic
+    discovery.
 
 ## D3 — Sandbox and analysis with given files
 
@@ -2036,9 +2130,10 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
   auto-update is on, kept on for security fixes at the user's decision
   (2026-10-14, see (o)); a new version is checked with the smoke batch
   before results on it are pooled or compared.
-- Group cards: schema or name-pattern families, overlapping, not
-  directories; a group ID takes an optional member filter of globs over
-  member paths (D2, 2026-10-15; see D2 progress (b)).
+- Group cards: schema families within a directory or name-pattern
+  families, overlapping; a group ID takes an optional member filter of globs
+  over member paths (D2, 2026-10-15; see D2 progress (b), schema rule
+  refined in (c)).
 - Context stays strictly append-only within a run; no compaction (D3,
   2026-10-14; see D3 progress (o)). On the development passes the largest
   context is 54k tokens of 262k, each step's prefill tracks the appended

@@ -5,12 +5,21 @@ set is the task's ``data_sources`` resolved to files in the agent-visible
 store (``data_sources`` entries that resolve to nothing are counted, not
 scored: no ranker can return a file that is not in the store). A ranker
 returns catalogue documents in rank order; each document maps to the files it
-stands for (one, for a file card). Metrics at k count the first k distinct
-documents:
+stands for (one for a file card, its members for a group card). Metrics at k
+count the first k distinct documents:
 
 - ``recall@k``: the share of a task's gold files among them;
 - ``hit@k``: at least one gold file is among them;
 - ``complete@k``: every gold file is among them.
+
+``file_`` metrics count file cards only (a group card in the first k still
+takes its slot but retrieves nothing), so groups cannot hide misses;
+``groups@k`` is the number of group cards among the first k.
+
+``--collapse`` shows a grouped file's group in its place (its largest group,
+at the first position any member or the group itself reached), as a search
+tool presenting families would. Each row keeps the ranker's own list as
+``ranked``; ``--rescore`` replays those lists instead of searching again.
 
 Scope ``pooled`` searches the whole catalogue; ``domain`` adds the task's
 domain as a filter, as a per-domain condition would. Uncertainty is a
@@ -38,7 +47,12 @@ from typing import Any, Literal, Protocol
 
 import yaml
 
-from ds_research_agent.catalogue.models import Manifest, load_manifest
+from ds_research_agent.catalogue.models import (
+    CatalogueEntry,
+    CatalogueGroup,
+    Manifest,
+    load_manifest,
+)
 from ds_research_agent.config import McpSettings, Settings, load_settings
 from ds_research_agent.retrieval.mcp_adapter import McpRetrieval
 from eval.kramabench.split import frozen_split
@@ -67,19 +81,51 @@ def gold_files(task: Task, root: Path) -> tuple[tuple[str, ...], int]:
 
 def document_files(manifest: Manifest) -> dict[str, tuple[str, ...]]:
     """Document ID -> the files it stands for."""
-    return {e.document_id: (e.file_path,) for e in manifest.entries}
+    out: dict[str, tuple[str, ...]] = {e.document_id: (e.file_path,) for e in manifest.entries}
+    for g in manifest.groups:
+        out[g.document_id] = tuple(m.file_path for m in manifest.members(g))
+    return out
+
+
+def collapse_map(manifest: Manifest) -> dict[str, str]:
+    """File-card document ID -> the document ID of its largest group."""
+    out: dict[str, str] = {}
+    by_id = manifest.by_catalogue_id()
+    for g in sorted(manifest.groups, key=lambda g: (-len(g.member_ids), g.document_id)):
+        for mid in g.member_ids:
+            out.setdefault(by_id[mid].document_id, g.document_id)
+    return out
+
+
+def collapse(ranked: Sequence[str], to_group: Mapping[str, str]) -> list[str]:
+    out: list[str] = []
+    for d in ranked:
+        d = to_group.get(d, d)
+        if d not in out:
+            out.append(d)
+    return out
 
 
 def task_metrics(
-    ranked: Sequence[str], members: Mapping[str, tuple[str, ...]], gold: Sequence[str]
+    ranked: Sequence[str],
+    members: Mapping[str, tuple[str, ...]],
+    gold: Sequence[str],
+    groups: frozenset[str] = frozenset(),
 ) -> dict[str, float]:
+    """``groups`` names the group-card documents in ``members``."""
     want = set(gold)
     out: dict[str, float] = {"returned": float(len(ranked))}
-    for k in KS:
-        found = {f for d in ranked[:k] for f in members.get(d, ())} & want
-        out[f"recall@{k}"] = len(found) / len(want)
-        out[f"hit@{k}"] = float(bool(found))
-        out[f"complete@{k}"] = float(found == want)
+    for prefix, skip in (("", frozenset[str]()), ("file_", groups)):
+        if prefix and not groups:
+            continue
+        for k in KS:
+            found = {f for d in ranked[:k] if d not in skip for f in members.get(d, ())} & want
+            out[f"{prefix}recall@{k}"] = len(found) / len(want)
+            out[f"{prefix}hit@{k}"] = float(bool(found))
+            out[f"{prefix}complete@{k}"] = float(found == want)
+    if groups:
+        for k in KS:
+            out[f"groups@{k}"] = float(sum(1 for d in ranked[:k] if d in groups))
     return out
 
 
@@ -162,6 +208,25 @@ class Bm25Ranker:
         return [d for _, d in scored[: self._top]]
 
 
+class StoredRanker:
+    """Replays the ``ranked`` lists of an earlier result, by query and domain."""
+
+    def __init__(self, result: Mapping[str, Any], tasks: Mapping[str, Task]) -> None:
+        self.name = str(result["ranker"])
+        self.scope = str(result["scope"])
+        self._ranked: dict[tuple[str, str], list[str]] = {}
+        for row in result["tasks"]:
+            if row["gold"]:
+                if "ranked" not in row:
+                    raise ValueError("result has no stored rankings; rerun the ranker")
+                t = tasks[row["task"]]
+                self._ranked[(t.query, t.domain)] = list(row["ranked"])
+        self._domains = {t.query: t.domain for t in tasks.values()}
+
+    async def rank(self, query: str, domain: str | None) -> list[str]:
+        return self._ranked[(query, domain or self._domains[query])]
+
+
 class RagRanker:
     """rag-toolkit's ``rag_search`` over MCP, the contract the agent will use."""
 
@@ -203,6 +268,8 @@ async def evaluate(
     root: Path,
     members: Mapping[str, tuple[str, ...]],
     scope: Scope,
+    groups: frozenset[str] = frozenset(),
+    to_group: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     rows = []
     for t in tasks:
@@ -211,8 +278,9 @@ async def evaluate(
             rows.append({"task": t.key, "domain": t.domain, "gold": 0, "unresolved": unresolved})
             continue
         start = time.monotonic()
-        ranked = await ranker.rank(t.query, t.domain if scope == "domain" else None)
+        raw = await ranker.rank(t.query, t.domain if scope == "domain" else None)
         latency = time.monotonic() - start
+        ranked = collapse(raw, to_group) if to_group is not None else raw
         rows.append(
             {
                 "task": t.key,
@@ -220,7 +288,8 @@ async def evaluate(
                 "gold": len(gold),
                 "unresolved": unresolved,
                 "latency_s": round(latency, 3),
-                **task_metrics(ranked, members, gold),
+                **task_metrics(ranked, members, gold, groups),
+                "ranked": raw,
             }
         )
     return {"ranker": ranker.name, "scope": scope, "tasks": rows, "summary": summarise(rows)}
@@ -229,7 +298,8 @@ async def evaluate(
 def summarise(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     scored = [r for r in rows if r["gold"]]
     strata = {r["task"]: r["domain"] for r in scored}
-    metrics = ["returned"] + [f"{m}@{k}" for m in ("recall", "hit", "complete") for k in KS]
+    meta = {"task", "domain", "gold", "unresolved", "latency_s", "ranked"}
+    metrics = [m for m in (scored[0] if scored else {}) if m not in meta]
 
     def block(subset: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         out: dict[str, Any] = {"tasks": len(subset)}
@@ -275,23 +345,42 @@ async def _main(args: argparse.Namespace) -> int:
     tasks = [all_tasks[k] for k in split.dev]
     root = settings.kramabench.visible_root
     members = document_files(manifest)
-    if args.ranker == "bm25":
+    groups = frozenset(g.document_id for g in manifest.groups)
+    to_group = collapse_map(manifest) if args.collapse else None
+    suffix = "+collapse" if args.collapse else ""
+    if args.rescore:
+        stored = StoredRanker(json.loads(args.rescore.read_text(encoding="utf-8")), all_tasks)
+        if stored.scope != args.scope:
+            raise SystemExit(f"--rescore result has scope {stored.scope}, not {args.scope}")
+        stored.name += suffix
+        result = await evaluate(stored, tasks, root, members, args.scope, groups, to_group)
+    elif args.ranker == "bm25":
         cards = settings.catalogue.cards_dir
-        docs = {e.document_id: (cards / e.document_id).read_text("utf-8") for e in manifest.entries}
-        domains = {e.document_id: e.domain for e in manifest.entries}
-        result = await evaluate(Bm25Ranker(docs, domains), tasks, root, members, args.scope)
+        records: list[CatalogueEntry | CatalogueGroup] = [*manifest.entries, *manifest.groups]
+        docs = {r.document_id: (cards / r.document_id).read_text("utf-8") for r in records}
+        domains = {r.document_id: r.domain for r in records}
+        ranker = Bm25Ranker(docs, domains)
+        ranker.name += suffix
+        result = await evaluate(ranker, tasks, root, members, args.scope, groups, to_group)
     else:
         mcp = mode_variant(settings, args.mode) if args.mode else settings.mcp
-        name = f"rag-{args.mode or 'configured'}"
+        name = f"rag-{args.mode or 'configured'}{suffix}"
         async with McpRetrieval(mcp, errlog=open(args.out.with_suffix(".server.log"), "w")) as r:
             result = await evaluate(
-                RagRanker(r, settings.catalogue.corpus, name), tasks, root, members, args.scope
+                RagRanker(r, settings.catalogue.corpus, name),
+                tasks,
+                root,
+                members,
+                args.scope,
+                groups,
+                to_group,
             )
             result["summary"]["startup_s"] = round(r.startup_s or 0.0, 2)
     result["catalogue"] = {
         "corpus": manifest.corpus,
         "profiler_version": manifest.profiler_version,
         "entries": len(manifest.entries),
+        "groups": len(manifest.groups),
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, indent=1) + "\n", encoding="utf-8")
@@ -302,11 +391,16 @@ async def _main(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m eval.kramabench.discovery")
     ap.add_argument("--config", type=Path, required=True)
-    ap.add_argument("--ranker", choices=["rag", "bm25"], required=True)
+    ap.add_argument("--ranker", choices=["rag", "bm25"])
+    ap.add_argument("--rescore", type=Path, help="replay an earlier result's rankings")
+    ap.add_argument("--collapse", action="store_true", help="show grouped files as their group")
     ap.add_argument("--mode", choices=["dense", "hybrid"], help="override retrieval.mode (rag)")
     ap.add_argument("--scope", choices=["pooled", "domain"], default="pooled")
     ap.add_argument("--out", type=Path, required=True)
-    return asyncio.run(_main(ap.parse_args(argv)))
+    args = ap.parse_args(argv)
+    if (args.ranker is None) == (args.rescore is None):
+        ap.error("give exactly one of --ranker and --rescore")
+    return asyncio.run(_main(args))
 
 
 if __name__ == "__main__":

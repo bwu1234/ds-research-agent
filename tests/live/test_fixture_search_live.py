@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from ds_research_agent.catalogue import load_manifest
+from ds_research_agent.catalogue import CatalogueEntry, CatalogueGroup, load_manifest
 from ds_research_agent.config import Settings
 from ds_research_agent.retrieval import McpRetrieval, RetrievalError, resolve
 
@@ -50,7 +50,12 @@ async def test_filtered_search_resolves_through_manifest(settings: Settings) -> 
 
         legal_pairs = resolve(legal, manifest)
         assert legal_pairs and all(e.domain == "legal" for _, e in legal_pairs)
-        assert legal_pairs[0][1].file_path.startswith("legal/State MSA/Utah 20")
+        # The Utah family's group card or one of its two file cards.
+        top = legal_pairs[0][1]
+        if isinstance(top, CatalogueGroup):
+            assert top.directory == "legal/State MSA" and len(top.member_ids) == 2
+        else:
+            assert top.file_path.startswith("legal/State MSA/Utah 20")
         env_pairs = resolve(env, manifest)
         assert env_pairs and all(e.domain == "environment" for _, e in env_pairs)
 
@@ -61,7 +66,9 @@ async def test_filtered_search_resolves_through_manifest(settings: Settings) -> 
             max_chars=400,
             filters={"any_of": {"format": ["csv"]}, "equals": {"domain": "environment"}},
         )
-        assert {e.file_path for _, e in resolve(csv_only, manifest)} <= {
+        csv_files = resolve(csv_only, manifest)
+        assert all(isinstance(e, CatalogueEntry) for _, e in csv_files)
+        assert {e.file_path for _, e in csv_files if isinstance(e, CatalogueEntry)} <= {
             "environment/water/station_readings.csv",
             "environment/notes/field_log.csv",
         }
@@ -72,7 +79,9 @@ async def test_filtered_search_resolves_through_manifest(settings: Settings) -> 
             )
         assert e.value.kind == "tool"
 
+    hit = top.directory if isinstance(top, CatalogueGroup) else top.file_path
+    hit_id = top.group_id if isinstance(top, CatalogueGroup) else top.catalogue_id
     print(
         f"\nstartup {r.startup_s:.2f}s; cold search {cold:.2f}s; warm search {warm:.2f}s; "
-        f"top legal hit {legal_pairs[0][1].file_path} ({legal_pairs[0][1].catalogue_id})"
+        f"top legal hit {hit} ({hit_id})"
     )

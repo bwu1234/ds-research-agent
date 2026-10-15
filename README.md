@@ -19,7 +19,7 @@ intervals include zero.
 | D0 Scaffold: config, model client, MCP retrieval adapter, dataset-card profiler | Done |
 | D1 Evaluation harness: deterministic scorer, frozen split, SQLite run ledger, replay, baselines | Done |
 | D3 Sandbox and given-files analysis: restricted container, read audit, persistent kernel, agent loop, rerun verifier, comparator | Done |
-| D2 Catalogue expansion and discovery: cards for 1,741 of 1,742 files and retrieval-only baselines done; group-card rule decided; group cards and agentic discovery next | In progress |
+| D2 Catalogue expansion and discovery: cards for 1,741 of 1,742 files and retrieval-only baselines done; group cards (profiler v3) and group-level retrieval done; group-ID selection and agentic discovery next | In progress |
 | D4 End to end: search the catalogue, then analyse, with provenance | Planned |
 | D5 Ablations and sealed-holdout evaluation | Planned |
 

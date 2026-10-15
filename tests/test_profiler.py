@@ -32,6 +32,9 @@ def cat(tmp_path: Path) -> CatalogueSettings:
         max_cell_chars=80,
         max_json_bytes=1_000_000,
         text_preview_lines=6,
+        csv_title_scan_rows=5,
+        group_rules=["schema", "pattern"],
+        group_member_list_limit=4,
     )
 
 
@@ -136,7 +139,8 @@ def test_failed_build_keeps_previous_cards(
     def boom(*_: object) -> None:
         raise RuntimeError("profiler crashed")
 
-    monkeypatch.setattr("ds_research_agent.catalogue.profiler.profile_file", boom)
+    # Fails after the file cards are staged: the old cards must survive.
+    monkeypatch.setattr("ds_research_agent.catalogue.profiler.render_group_card", boom)
     with pytest.raises(RuntimeError):
         build_catalogue(cat)
     assert card_texts(cat.cards_dir) == before
@@ -280,3 +284,74 @@ def test_a_multibyte_character_at_the_sniff_boundary_stays_utf8(
     (lake / "names.txt").write_bytes("abc\nZoë Ö\nmore\n".encode())  # 'ë' spans bytes 6-7
     _, card = _cards(cat.model_copy(update={"data_root": tmp_path / "lake"}))["names.txt"]
     assert "Encoding: utf-8" in card and "Lines: 3" in card
+
+
+# --- profiler v3: CSV title rows and group cards ------------------------------
+
+
+@pytest.fixture
+def reports_lake(cat: CatalogueSettings, tmp_path: Path) -> CatalogueSettings:
+    lake = tmp_path / "lake" / "env"
+    for beach, place in (("north", "North Beach: Water Quality"), ("south", "South Beach")):
+        (lake / "beaches").mkdir(parents=True, exist_ok=True)
+        (lake / "beaches" / f"{beach}_datasheet.csv").write_text(
+            f'"{place}",,,\n,,Middle,\nDate,Rain,Tag,Count\n"May 1, 2024",0,<,10\n',
+            encoding="utf-8",
+        )
+    (lake / "two_col.csv").write_text(
+        "Reports by Area,\n,\nArea,# of Reports\nSalt Lake,264\n", encoding="utf-8"
+    )
+    # A real header with an empty second name: the next row is data, not a header.
+    (lake / "indexed.csv").write_text("name,\nalpha,1\nbeta,2\n", encoding="utf-8")
+    for year in (2001, 2002, 2003):
+        (lake / f"tests-{year}.csv").write_text(f"Year,Value\n{year},1\n", encoding="utf-8")
+    return cat.model_copy(update={"data_root": tmp_path / "lake", "group_member_list_limit": 2})
+
+
+def test_title_rows_above_the_header_are_facts_not_columns(
+    reports_lake: CatalogueSettings,
+) -> None:
+    cards = _cards(reports_lake)
+    north = cards["north_datasheet.csv"][1]
+    assert "Title: North Beach: Water Quality" in north
+    assert "Header line: 3" in north and "Above the header: Middle" in north
+    assert "| Date | Rain | Tag | Count |" in north
+    assert "Rows: 1. Columns: 4." in north
+    two = cards["two_col.csv"][1]
+    assert "| Area | # of Reports |" in two and "Title: Reports by Area" in two
+    indexed = cards["indexed.csv"][1]
+    assert "Title:" not in indexed and "Rows: 2. Columns: 2." in indexed
+    off = reports_lake.model_copy(update={"csv_title_scan_rows": 0})
+    assert "Title:" not in _cards(off)["north_datasheet.csv"][1]
+
+
+def test_group_cards_for_schema_and_pattern_families(reports_lake: CatalogueSettings) -> None:
+    m = build_catalogue(reports_lake)
+    by_rules = {g.rules: g for g in m.groups}
+    assert set(by_rules) == {("schema",), ("pattern", "schema")}
+    beaches, years = by_rules[("schema",)], by_rules[("pattern", "schema")]
+    assert [e.file_path.rsplit("/", 1)[1] for e in m.members(beaches)] == [
+        "north_datasheet.csv",
+        "south_datasheet.csv",
+    ]
+    assert beaches.directory == "env/beaches" and len(years.member_ids) == 3
+
+    front, body = split_front_matter((reports_lake.cards_dir / years.document_id).read_text())
+    assert all(isinstance(v, str) for v in front.values())
+    assert front["card_kind"] == "group" and front["group_id"] == years.group_id
+    assert front["catalogue_id"] == years.group_id and front["members"] == "3"
+    assert front["file_path"] == "env" and front["domain"] == "env"
+    assert "Name pattern: `tests-#.csv`" in body
+    assert "Varying digits, first to last: 2001 to 2003" in body
+    assert "| Year | integer |" in body and "Rows per member: 1 each" in body
+    # Two members listed (the limit), the third summarised.
+    assert body.count("- `env/tests-") == 2 and "- … 1 more …" in body
+
+    member = next(e for e in m.entries if e.file_path == "env/tests-2002.csv")
+    assert member.group_ids == (years.group_id,)
+    mfront, mbody = split_front_matter((reports_lake.cards_dir / member.document_id).read_text())
+    assert mfront["group_id"] == years.group_id and years.group_id in mbody
+    assert load_manifest(reports_lake.manifest_path) == m
+
+    none = build_catalogue(reports_lake.model_copy(update={"group_rules": []}))
+    assert none.groups == [] and all(e.group_ids == () for e in none.entries)

@@ -23,6 +23,11 @@ Rules:
 - ``schema|pattern``: schema and pattern groups, without directory groups.
   In a flat directory of unrelated files, a directory group's contiguous
   runs are alphabetical accidents, not filters anyone would write.
+- ``directory+schema|pattern``: as above, but schema families stop at a
+  directory.
+
+The rules are the profiler's (``ds_research_agent.catalogue.grouping``), so
+this measures what a build with them would write.
 
 Per task, three selection policies. A file may be selected on its own under
 every policy (a file card is always available); what differs is which group
@@ -50,27 +55,27 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 import time
 from collections import Counter, defaultdict
-from collections.abc import Callable, Mapping, Sequence
-from pathlib import Path, PurePosixPath
+from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
+from ds_research_agent.catalogue.grouping import RULES, Schema, partition
 from ds_research_agent.catalogue.models import CatalogueEntry, load_manifest
-from ds_research_agent.catalogue.profiler import PROFILERS, ProfileError
+from ds_research_agent.catalogue.profiler import PROFILERS, ProfileError, table_schema
 from ds_research_agent.config import CatalogueSettings, load_settings
+from ds_research_agent.config.settings import GroupRule
 from eval.kramabench.discovery import bootstrap_mean, gold_files
 from eval.kramabench.split import frozen_split
 
-# Column names per table; None when the profiler finds no table.
-Schema = tuple[tuple[str, ...], ...] | None
-Key = tuple[str, ...]
-Rule = Callable[[CatalogueEntry, Schema], Key | None]
-
-_DIGITS = re.compile(r"\d+")
 LIMITS = (5, 10, 20)
+UNIONS: dict[str, tuple[GroupRule, ...]] = {
+    "union": ("directory", "schema", "pattern"),
+    "schema|pattern": ("schema", "pattern"),
+    "directory+schema|pattern": ("directory+schema", "pattern"),
+}
 
 
 def file_schema(entry: CatalogueEntry, root: Path, s: CatalogueSettings) -> Schema:
@@ -78,58 +83,9 @@ def file_schema(entry: CatalogueEntry, root: Path, s: CatalogueSettings) -> Sche
     if profiler is None or entry.parse_status != "ok":
         return None
     try:
-        profile = profiler(root / entry.file_path, s)
+        return table_schema(profiler(root / entry.file_path, s))
     except ProfileError:
         return None
-    tables = tuple(tuple(c.name for c in t.columns) for t in profile.tables if t.columns)
-    return tables or None
-
-
-def _directory(e: CatalogueEntry, _: Schema) -> Key:
-    return (str(PurePosixPath(e.file_path).parent),)
-
-
-def _schema(e: CatalogueEntry, schema: Schema) -> Key | None:
-    if schema is None:
-        return None
-    return (e.domain, e.format, json.dumps(schema))
-
-
-def _pattern(e: CatalogueEntry, schema: Schema) -> Key | None:
-    name = PurePosixPath(e.file_path).name
-    masked = _DIGITS.sub("#", name)
-    if masked == name:
-        return None
-    return (e.domain, masked, json.dumps(schema))
-
-
-def _directory_schema(e: CatalogueEntry, schema: Schema) -> Key | None:
-    key = _schema(e, schema)
-    return None if key is None else _directory(e, schema) + key
-
-
-RULES: dict[str, Rule] = {
-    "directory": _directory,
-    "schema": _schema,
-    "pattern": _pattern,
-    "directory+schema": _directory_schema,
-}
-UNIONS = {
-    "union": ("directory", "schema", "pattern"),
-    "schema|pattern": ("schema", "pattern"),
-}
-
-
-def partition(
-    entries: Sequence[CatalogueEntry], schemas: Mapping[str, Schema], rule: Rule
-) -> list[tuple[str, ...]]:
-    """Groups of two or more file paths, each sorted, in a stable order."""
-    by: dict[Key, list[str]] = defaultdict(list)
-    for e in entries:
-        key = rule(e, schemas[e.file_path])
-        if key is not None:
-            by[key].append(e.file_path)
-    return sorted(tuple(sorted(fs)) for fs in by.values() if len(fs) > 1)
 
 
 def _runs(group: tuple[str, ...], want: set[str]) -> list[frozenset[str]]:
@@ -228,7 +184,9 @@ def measure(
     strata = {k: d for k, d, _ in tasks}
     baseline: list[tuple[str, ...]] = []  # per-file cards: no groups
     out: dict[str, Any] = {}
-    partitions = {n: partition(entries, schemas, r) for n, r in RULES.items()}
+    partitions: dict[str, list[tuple[str, ...]]] = {
+        n: partition(entries, schemas, n) for n in RULES
+    }
     unions = {
         name: sorted({g for n in parts for g in partitions[n]}) for name, parts in UNIONS.items()
     }

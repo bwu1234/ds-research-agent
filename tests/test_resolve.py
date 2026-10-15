@@ -1,6 +1,6 @@
 import pytest
 
-from ds_research_agent.catalogue import CatalogueEntry, Manifest
+from ds_research_agent.catalogue import CatalogueEntry, CatalogueGroup, Manifest
 from ds_research_agent.retrieval import RetrievalError, SearchResponse, resolve
 
 
@@ -53,3 +53,21 @@ def test_resolves_by_exact_document_id() -> None:
 def test_unknown_document_is_an_error_not_a_basename_match() -> None:
     with pytest.raises(RetrievalError, match="not in the manifest"):
         resolve(response("other/a.csv.md"), MANIFEST)
+
+
+def test_resolves_group_cards_to_their_group() -> None:
+    group = CatalogueGroup(
+        group_id="d/g-1",
+        domain="d",
+        rules=("pattern",),
+        member_ids=("d/d/a.csv", "d/d/sub/a.csv"),
+        directory="d",
+        format="csv",
+        document_id="d/_groups/g-1.md",
+        card_hash="sha256:2",
+        profiler_version=3,
+    )
+    manifest = MANIFEST.model_copy(update={"groups": [group]})
+    (_, g), (_, e) = resolve(response("d/_groups/g-1.md", "d/a.csv.md"), manifest)
+    assert g == group and isinstance(e, CatalogueEntry)
+    assert [m.file_path for m in manifest.members(group)] == ["d/a.csv", "d/sub/a.csv"]
