@@ -359,7 +359,13 @@ class LedgerError(RuntimeError):
 
 
 class Ledger:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, readonly: bool = False) -> None:
+        """Open or create the ledger. ``readonly`` opens an existing ledger for
+        reading only (the run viewer): nothing is created or migrated, and
+        SQLite refuses writes, so a running batch can keep writing."""
+        if readonly:
+            self._open_readonly(path)
+            return
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path, isolation_level=None)
         self._db.row_factory = sqlite3.Row
@@ -375,6 +381,26 @@ class Ledger:
         self._db.execute(
             "INSERT OR REPLACE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
         )
+
+    def _open_readonly(self, path: Path) -> None:
+        if not path.is_file():
+            raise LedgerError(f"{path}: no ledger")
+        # mode=ro: the engine refuses writes; query_only also refuses them on
+        # this connection if the file were ever opened writable.
+        self._db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+        self._db.row_factory = sqlite3.Row
+        self._db.execute("PRAGMA query_only = ON")
+        try:
+            row = self._db.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+        except sqlite3.DatabaseError:  # not a ledger (no meta table, or not SQLite)
+            self._db.close()
+            row = None
+        if row is None or int(row[0]) != SCHEMA_VERSION:
+            found = None if row is None else row[0]
+            raise LedgerError(
+                f"{path}: schema {found}, expected {SCHEMA_VERSION}; "
+                "run any harness command once to upgrade it"
+            )
 
     def _migrate_4(self) -> None:
         """Schema 4: runs.repo_revision. A batch resumed at another commit mixes
@@ -479,6 +505,31 @@ class Ledger:
             "SELECT * FROM runs WHERE batch_id = ? ORDER BY rowid", (batch_id,)
         ).fetchall()
         return [_from_row(Run, r) for r in rows]
+
+    def runs_for_task(self, task_key: str) -> list[Run]:
+        """Every run of ``task_key`` across batches, oldest first."""
+        rows = self._db.execute(
+            "SELECT * FROM runs WHERE task_key = ? ORDER BY started", (task_key,)
+        ).fetchall()
+        return [_from_row(Run, r) for r in rows]
+
+    def batch_fingerprint(self, batch_id: str) -> tuple[Any, ...]:
+        """Changes whenever a run, step, score, or label of the batch is
+        recorded, so derived summaries can be cached until then."""
+        row = self._db.execute(
+            """
+            SELECT count(*), max(r.started), max(r.ended),
+                   (SELECT count(*) FROM steps s
+                    WHERE s.run_id IN (SELECT run_id FROM runs WHERE batch_id = ?)),
+                   (SELECT count(*) || '/' || ifnull(max(c.scored), '') FROM scores c
+                    WHERE c.run_id IN (SELECT run_id FROM runs WHERE batch_id = ?)),
+                   (SELECT count(*) || '/' || ifnull(max(f.labelled), '') FROM failure_labels f
+                    WHERE f.run_id IN (SELECT run_id FROM runs WHERE batch_id = ?))
+            FROM runs r WHERE r.batch_id = ?
+            """,
+            (batch_id, batch_id, batch_id, batch_id),
+        ).fetchone()
+        return tuple(row)
 
     def steps(self, run_id: str) -> list[Step]:
         rows = self._db.execute(
