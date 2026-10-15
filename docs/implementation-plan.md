@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); all other milestones pending, D2 next. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group cards and agentic discovery next); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -630,6 +630,103 @@ recorded with evidence) is met.
 
 Acceptance: the retrieval-only scores run offline with no LLM. Scores for the
 agentic version are reported with their time cost.
+
+### D2 progress
+
+- **(a) Full catalogue, retrieval-only harness, and single-shot baselines,
+  2026-10-15.** No generative model is called. Every figure is from the 53
+  development tasks, with queries taken from the task questions and gold sets
+  from their resolved `data_sources`. Three entries resolve to no file (the
+  known missing wildfire files) and are counted, not scored. The data is in
+  `data/measurements/discovery/`, which is benchmark-derived and kept local.
+  - **Profiler version 2** (`PROFILER_VERSION = 2`) adds xlsx (openpyxl, one
+    table per sheet), GeoPackage (SQLite opened read-only; blob columns
+    listed, not sampled), npz array headers, XML sidecars (defusedxml), HTML
+    visible text, and a first-lines preview for text formats (txt, dat, lst,
+    tle, sp3, py; new required setting `catalogue.text_preview_lines`).
+    Coverage over all 1,742 files: v1 had 1,627 content cards and 115 minimal
+    ones; v2 has 1,741 content cards and one minimal (the single `.cdf`).
+    Build time is 36 s for v1 and 55 s for v2 (217 MB peak RSS for v1). Card
+    size in v2: median 1.5 KB, max 59 KB. Each version has its own corpus
+    and index (`kramabench-cards-v1` and `-v2`, configured in
+    `config/local.kramabench.yaml` and `-v2.yaml`), so `config/local.yaml`
+    keeps serving the fixture catalogue that the live tests use.
+  - **Indexing found a rag-toolkit chunker bug.** At `b7434cf`, each of the
+    715 OMNI2 cards (57 columns) has a sample-rows header longer than
+    `chunk_size`. The structured chunker split it with a negative budget,
+    emitting about 900 copies of the header per card: 621,799 chunks
+    (616,827 duplicates) for 1,742 cards, about 19 hours to embed. With
+    overlap 0 it never finished. Two v1 index attempts hit the 1,800 s
+    timeout; the first was also slowed by a concurrent rag-toolkit job on the
+    same Ollama. Fixed upstream in rag-toolkit#106 (R10 in
+    [rag-toolkit-changes.md](rag-toolkit-changes.md)). Its review found that
+    the word fallback counted characters rather than the injected length
+    metric, and that fix (#107) also closed an empty-piece bug. **Pin moved
+    to `0f6eb38`** (#107's merge). The MCP server, retrieval, and vector
+    store code are unchanged from `b7434cf`. The live tests pass on the new
+    pin, and the fixture index was rebuilt on it. The index job now writes
+    rag-toolkit's output to `index.log` as it runs and prints the chunk plan
+    before embedding.
+  - **Index build**, Ollama otherwise idle (`qwen3-embedding:0.6b`, batches
+    of 32 chunks at about 3.4 s each). v1: 8,312 chunks in 794 s. v2: 8,836
+    chunks in 851 s. Peak RSS was about 0.4 GB. Both builds ran at
+    `d4e8d31`; under `0f6eb38` their chunk text is byte-identical, checked
+    on both corpora and on rag-toolkit's own. About 1,950 chunks per version
+    are genuine duplicates: OMNI2's 715 files share identical column names,
+    so their header chunks match exactly.
+  - **Search latency** over MCP (`rag_search`: 20 candidates, reranked by
+    `BAAI/bge-reranker-v2-m3`, all 20 returned). Server startup 0.7–0.9 s.
+    The first query of a session took 6.9–11.5 s (cold: model loads). Warm
+    queries had a median of 0.98–1.09 s across the eight runs. The in-process
+    BM25 baseline is under 20 ms.
+  - **Results.** Cards retrieved are counted as distinct cards. rag-toolkit
+    returns at most 20 *passages*, about 13–17 distinct cards per query
+    (fewer under a domain filter, where small domains have only 5–7 files),
+    against BM25's 20 cards. So @20 favours BM25, and the comparison below
+    is at @5 and @10. "Complete" means every gold file is retrieved. Means
+    over the 53 tasks are shown with a 95% interval (percentile bootstrap
+    of tasks within domain). The domain-filtered rows are the primary
+    condition: KramaBench runs each domain's tasks against that domain's
+    files. Pooled is our variant ([evaluation plan](evaluation-plan.md)).
+
+    | Scope | Ranker | Cards | recall@5 | recall@10 | complete@10 |
+    |---|---|---|---|---|---|
+    | domain | BM25 (cards, in-process) | v1 | 0.51 [0.41, 0.61] | 0.64 [0.57, 0.73] | 0.51 [0.41, 0.62] |
+    | domain | BM25 | v2 | 0.60 [0.51, 0.70] | 0.70 [0.61, 0.80] | 0.57 [0.45, 0.68] |
+    | domain | rag-toolkit hybrid | v1 | 0.60 [0.50, 0.69] | 0.72 [0.64, 0.79] | 0.64 [0.55, 0.74] |
+    | domain | rag-toolkit dense | v2 | 0.63 [0.54, 0.71] | 0.71 [0.63, 0.80] | 0.64 [0.55, 0.74] |
+    | domain | **rag-toolkit hybrid** | **v2** | **0.67 [0.58, 0.76]** | **0.76 [0.68, 0.84]** | **0.68 [0.58, 0.77]** |
+    | pooled | BM25 | v1 | 0.45 [0.35, 0.55] | 0.52 [0.42, 0.62] | 0.38 [0.26, 0.49] |
+    | pooled | BM25 | v2 | 0.45 [0.35, 0.55] | 0.52 [0.42, 0.63] | 0.38 [0.26, 0.51] |
+    | pooled | rag-toolkit hybrid | v1 | 0.49 [0.40, 0.58] | 0.51 [0.43, 0.60] | 0.40 [0.28, 0.51] |
+    | pooled | rag-toolkit dense | v2 | 0.34 [0.25, 0.42] | 0.38 [0.28, 0.47] | 0.32 [0.23, 0.41] |
+    | pooled | rag-toolkit hybrid | v2 | 0.54 [0.44, 0.64] | 0.60 [0.50, 0.71] | 0.47 [0.36, 0.60] |
+
+    Paired differences on the same tasks, mean [95% interval], from
+    `paired-2026-10-15.json`:
+    - **v2 cards help.** rag hybrid, domain, v2 minus v1: recall@5 +0.07
+      [+0.02, +0.14], recall@10 +0.04 [+0.01, +0.09].
+    - **Hybrid over dense** is large pooled (recall@10 +0.23 [+0.13, +0.34])
+      and small under the domain filter (+0.05 [+0.01, +0.11]). Dense alone
+      cannot separate domains whose cards look alike.
+    - **The domain filter is worth more than any ranker change:** rag hybrid
+      v2, domain minus pooled, complete@10 +0.21 [+0.11, +0.30].
+    - **rag-toolkit over the BM25 baseline**, v2, domain: recall@5 +0.06
+      [−0.00, +0.13], recall@10 +0.06 [−0.02, +0.15], complete@10 +0.11
+      [+0.02, +0.21]. Only the complete-set difference excludes zero. These
+      are retrieval-only results on 53 development tasks.
+  - **By domain** (rag hybrid, v2, domain filter, recall@10 / complete@10).
+    Archaeology 1.00 / 1.00 (6 tasks) and biomedical 1.00 / 1.00 (5) are
+    trivial: 5 and 7 files. Wildfire 0.92 / 0.82 (11), legal 0.77 / 0.73
+    (15), environment 0.60 / 0.40 (10). **Astronomy 0.29 / 0.17 (6)** is the
+    weak domain under every ranker: its tasks select dozens of near-identical
+    files (up to 124), which no per-file ranking returns in 10 or 20 slots.
+    That is the group-card problem.
+  - **Next.** Group cards are measured against these single-shot numbers.
+    Decide directory versus schema grouping on the astronomy and
+    environment failures, and whether `run_python` accepts group IDs. Then
+    agentic discovery, with its time cost. Card-content ablations stay
+    optional.
 
 ## D3 — Sandbox and analysis with given files
 
