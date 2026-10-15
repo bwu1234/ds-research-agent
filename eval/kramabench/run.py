@@ -35,7 +35,7 @@ import asyncio
 import json
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -93,6 +93,26 @@ def server_version_problem(found: str | None, refused: Sequence[str]) -> str | N
     if found in refused:
         return f"version {found} is in model.refuse_server_versions (known to fail)"
     return None
+
+
+class ServerVersionChanged(RuntimeError):
+    """The Ollama server's version no longer matches the batch's."""
+
+
+def version_guard(host: str, recorded: str | None) -> Callable[[], None]:
+    """A ``before_run`` check: the server must still report the batch's version.
+    Auto-update installs a new version when the Ollama app restarts, which can
+    happen mid-batch; the batch is stamped once, so later runs must not drift."""
+
+    def check() -> None:
+        found = ollama_version(host)
+        if found != recorded:
+            raise ServerVersionChanged(
+                f"Ollama at {host} reports {found or 'no version (unreachable)'}, "
+                f"but the batch was recorded on {recorded}"
+            )
+
+    return check
 
 
 def task_keys(split: Split, name: str, unseal: bool) -> tuple[str, ...]:
@@ -271,8 +291,21 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
     h = Harness(settings, model, ledger, split, tasks, repo_revision=_git("rev-parse", "HEAD"))
     client = OllamaModelClient(model)
     agent_task = docker_agent_task(settings, args.condition) if agentic else None
+    guard = version_guard(model.host, batch.ollama_version)
     try:
-        asyncio.run(run_batch(h, batch, lambda _t, _r: client, _progress, agent_task))
+        asyncio.run(run_batch(h, batch, lambda _t, _r: client, _progress, agent_task, guard))
+    except ServerVersionChanged as e:
+        msg = (
+            f"error: {e}. The batch stopped before its next run and cannot be "
+            "resumed on another version; start a new batch."
+        )
+        if last := ledger.runs(batch.batch_id)[-1:]:
+            msg += (
+                f" The last finished run ({last[0].task_key}, stop reason "
+                f"{last[0].stop_reason}) may have spanned the restart."
+            )
+        print(msg, file=sys.stderr)
+        return 4
     except SandboxUnavailable as e:
         print(
             f"error: {e}\nThe current run is left unfinished; once Docker is back, rerun "

@@ -76,6 +76,9 @@ class SandboxRun(_Frozen):
     audit: AuditResult
     observed_reads: list[ObservedRead]
     scratch_dir: Path
+    # The container's cgroup peak memory; None before it was recorded
+    # (older ledgers) or if the wrapper could not read it.
+    memory_peak_bytes: int | None = None
 
 
 class SandboxError(RuntimeError):
@@ -291,6 +294,7 @@ class SandboxRunner:
         timed_out = elapsed_ns >= s.wall_timeout_s * 1_000_000_000
         audit = observe(wrapper, timed_out=timed_out)
         exit_raw = wrapper.meta.get("exit")
+        peak_raw = wrapper.meta.get("memory_peak_bytes", "")
         stdout, out_trunc = _read_bounded(call / "out/stdout", s.max_output_chars)
         stderr, err_trunc = _read_bounded(call / "out/stderr", s.max_output_chars)
         return SandboxRun(
@@ -309,4 +313,5 @@ class SandboxRunner:
                 for p in audit.data_reads
             ],
             scratch_dir=scratch,
+            memory_peak_bytes=int(peak_raw) if peak_raw.isdigit() else None,
         )

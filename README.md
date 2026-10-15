@@ -18,7 +18,7 @@ intervals include zero.
 |---|---|
 | D0 Scaffold: config, model client, MCP retrieval adapter, dataset-card profiler | Done |
 | D1 Evaluation harness: deterministic scorer, frozen split, SQLite run ledger, replay, baselines | Done |
-| D3 Sandbox and given-files analysis: restricted container, read audit, persistent kernel, agent loop, rerun verifier, comparator | In progress; paired comparison run and decided |
+| D3 Sandbox and given-files analysis: restricted container, read audit, persistent kernel, agent loop, rerun verifier, comparator | Done |
 | D2 Catalogue expansion and discovery | Planned |
 | D4 End to end: search the catalogue, then analyse, with provenance | Planned |
 | D5 Ablations and sealed-holdout evaluation | Planned |
@@ -98,8 +98,9 @@ Indexing is a separate job.
 
 ## Next
 
-D4 runs end to end: search the catalogue for the input files, then analyse
-them, with provenance. D5 runs focused ablations and the sealed-holdout
+D2 expands the catalogue to every benchmark file and measures discovery
+(file recall) without the model. D4 then runs end to end: search the
+catalogue for the input files, then analyse them, with provenance. D5 runs focused ablations and the sealed-holdout
 evaluation, and the first release ends with a write-up and a synthetic
 provenance demo.
 

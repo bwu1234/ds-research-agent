@@ -127,6 +127,16 @@ def test_out_of_memory_is_dead(k: KernelSession) -> None:
     assert c.status in ("dead", "error"), c.status  # OOM kill, or MemoryError first
 
 
+def test_memory_peak_grows_across_cells(k: KernelSession) -> None:
+    first = k.execute("x = 1")
+    second = k.execute("b = bytearray(200 * 1024 * 1024)")
+    assert first.memory_peak_bytes is not None and second.memory_peak_bytes is not None
+    assert second.memory_peak_bytes >= first.memory_peak_bytes + 200 * 2**20
+    end = k.close()
+    assert end.memory_peak_bytes is not None
+    assert end.memory_peak_bytes >= second.memory_peak_bytes
+
+
 def test_forged_kernel_reply_is_a_protocol_error(k: KernelSession) -> None:
     c = k.execute(
         textwrap.dedent("""

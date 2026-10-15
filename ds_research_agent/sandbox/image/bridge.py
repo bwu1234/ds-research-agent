@@ -62,6 +62,15 @@ def trace_slice() -> dict[str, list[str]]:
     return out
 
 
+def memory_peak() -> int | None:
+    """The container's cgroup high-water mark in bytes, since it started."""
+    try:
+        with open("/sys/fs/cgroup/memory.peak") as f:
+            return int(f.read())
+    except OSError, ValueError:
+        return None
+
+
 def agent_pids() -> list[int]:
     pids = []
     for d in os.listdir("/proc"):
@@ -191,7 +200,8 @@ for raw in sys.stdin:
         "type": "cell", "cell": cell, "status": status, "traceback": tb,
         "stdout": stdout, "stdout_truncated": out_trunc,
         "stderr": stderr, "stderr_truncated": err_trunc,
-        "wall_ns": time.monotonic_ns() - t0, "trace": trace_slice(),
+        "wall_ns": time.monotonic_ns() - t0, "memory_peak_bytes": memory_peak(),
+        "trace": trace_slice(),
     })  # fmt: skip
 
 # Close: let the kernel exit on EOF, then make sure nothing outlives strace.
@@ -204,5 +214,6 @@ except subprocess.TimeoutExpired:
 kill_agent()
 emit({
     "type": "end", "cells": cell, "strace_exit": proc.returncode,
-    "session_timed_out": session_timed_out, "trace": trace_slice(),
+    "session_timed_out": session_timed_out, "memory_peak_bytes": memory_peak(),
+    "trace": trace_slice(),
 })  # fmt: skip

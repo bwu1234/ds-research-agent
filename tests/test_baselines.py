@@ -327,3 +327,40 @@ def test_resume_skips_finished_runs_and_redoes_interrupted_ones(tmp_path: Path) 
         task_set="dev", keys=keys, repeats=1, batch_id="resumable",
     )  # fmt: skip
     assert resume_problems(batch, changed) == ["model_settings"]
+
+
+def test_a_server_version_change_stops_the_batch_between_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from eval.kramabench import run as run_mod
+
+    s, h = _harness(tmp_path)
+    keys = h.split.dev[:3]
+    batch = new_batch(
+        s, h.model, h.split, condition="inline", task_set="dev", keys=keys, repeats=1,
+        batch_id="guarded",
+    )  # fmt: skip
+    h.ledger.add_batch(batch)
+    fake = FakeClient(h.tasks, {})
+
+    def client_for(t: Task, _r: int) -> FakeClient:
+        fake.current = t
+        return fake
+
+    # The app restarts into a new version after the first run.
+    served = iter(["0.40.4", "0.40.5"])
+    monkeypatch.setattr(run_mod, "ollama_version", lambda _host: next(served))
+    guard = run_mod.version_guard("http://x", "0.40.4")
+    with pytest.raises(run_mod.ServerVersionChanged, match=r"0\.40\.5.*0\.40\.4"):
+        asyncio.run(run_batch(h, batch, client_for, before_run=guard))
+    runs = h.ledger.runs("guarded")
+    assert [r.task_key for r in runs] == [keys[0]]
+    assert h.ledger.discard_unfinished("guarded") == []
+
+
+def test_an_unreachable_server_fails_the_version_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    from eval.kramabench import run as run_mod
+
+    monkeypatch.setattr(run_mod, "ollama_version", lambda _host: None)
+    with pytest.raises(run_mod.ServerVersionChanged, match="unreachable"):
+        run_mod.version_guard("http://x", "0.40.4")()

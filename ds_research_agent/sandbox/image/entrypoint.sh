@@ -27,6 +27,8 @@ end=$(date +%s%N)
 kill -9 -1 2>/dev/null
 echo "=== exit $rc"
 echo "=== elapsed_ns $((end - start))"
+# The container's cgroup high-water mark (bytes), strace and this wrapper included.
+echo "=== memory_peak_bytes $(cat /sys/fs/cgroup/memory.peak 2>/dev/null)"
 echo "=== strace $(strace -V | head -1)"
 for f in /audit/t.*; do
   [ -e "$f" ] || continue
