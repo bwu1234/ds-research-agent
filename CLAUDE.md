@@ -8,7 +8,8 @@ tool-call repair policy, KramaBench fetch script, and read-audit spike
 (`scripts/spike_read_audit/`, not the D3 sandbox) exist. D1's harness exists:
 local deterministic scorer, frozen split, SQLite run ledger, no-tools and
 inlined-files baselines, replay, and reports (`eval/kramabench/`). D1 is done
-(results in `docs/implementation-plan.md`). D3 is in progress: the sandbox
+(results in `docs/implementation-plan.md`). D3 is done (closed 2026-10-14 in
+D3 progress (o)): the sandbox
 runner (`ds_research_agent/sandbox/`: restricted container, derived seccomp
 profile, fail-closed read audit), its hash-pinned package set, and the
 persistent kernel session exist, and so does the given-files agent loop
@@ -20,7 +21,9 @@ same sandbox and verifier, is the `codeagent` condition
 (`eval/kramabench/codeagent_runs.py`). Both agent conditions have run on all 53
 development tasks; the registered paired comparison is decided in
 `docs/implementation-plan.md` (D3 progress (k)): execution beats inlined files,
-and the custom loop versus `codeagent` is inconclusive. The harness refuses an Ollama version listed in
+and the custom loop versus `codeagent` is inconclusive. Context stays
+append-only (no compaction), and the sandbox records each container's peak
+memory. D2 is next. The harness refuses an Ollama version listed in
 `model.refuse_server_versions` (0.40.0 to 0.40.3 crash on prefix-cache reuse),
 records the version on every batch, refuses to resume a batch on a different
 version, and warns when `compare` pairs batches from different versions. D1 and

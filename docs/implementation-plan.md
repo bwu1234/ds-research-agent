@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 in progress (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); all other milestones pending, D2 next. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -1530,7 +1530,8 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     Parent-task bootstrap as in `report.compare`; computed with a one-off
     script (not in the repo), because `compare` takes two batches.
   - **Not done:** failure labels for the failed runs of these batches
-    (22 `given_files`, 26 `codeagent` on the dev split) are not applied.
+    (22 `given_files`, 27 `codeagent` on the dev split) are not applied.
+    (Rule labels applied in (o); 27 corrected from 26, 2026-10-14.)
 
 - **(n) Ollama v0.40.4 (final) installed, 2026-10-14.** Released 2026-10-12,
   not a prerelease. 26 commits after rc0; on this machine only three touch
@@ -1582,6 +1583,94 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     it; compare decode tok/s at 8k to 16k against the rc0 figure above.
   - **Consequence.** (m) results are on 0.40.4-rc0 and are not pooled with
     new batches on 0.40.4. `refuse_server_versions` is unchanged.
+
+- **(o) D3 closed, 2026-10-14.** Acceptance: the workflow runs from
+  question to scored answer and fresh rerun (d2); development results with
+  uncertainty and a failure-taxonomy count are in (k) and (m); the sandbox,
+  audit, and synthetic-case tests are in (a) to (d1). This entry adds the
+  measured memory the acceptance asks for, decides context compaction, and
+  records what is carried forward. No model was called for any figure here
+  except the abandoned decode recheck below.
+  - **Context growth and compaction** (from the ledger's per-step
+    `prompt_eval_tokens`, which is the whole prompt; `given_files`
+    development passes on 0.35.1, rc0 pass 1, and rc0 pass 2). Largest
+    context per run: median 6.2k / 7.0k / 6.6k tokens, p90 19.1k / 21.2k /
+    18.6k, maximum 52k / 54k / 34k, against `num_ctx` 262,144. Runs reaching
+    16k: 9 / 11 / 12 of 53; 32k: 1 each. Prefill tracks the appended tokens,
+    not the context: median 346 to 394 tokens appended per step, 4.2 to 4.7 s
+    to prefill, and no step after the first took more than 38 s (a full
+    re-prefill at 16k is about 150 s), so no run lost its cached prefix.
+    The few steps where the context shrank by about 8,150 tokens follow a
+    reply cut off at the 8,192-token output cap, whose text the chat template
+    does not carry forward; they prefill in under 2 s. Decode, median tok/s
+    by context on rc0 pass 1: 26.7 below 8k, 24.7 at 8-16k, 24.7 at 16-32k,
+    22.2 above 32k. Prefill is about 30% of a run's wall time (median), the
+    model about 98%. **Decision: stay strictly append-only** (see Decided).
+    Strict accuracy falls with context (below 8k 69-70%, 8-16k 50-55%, 16k
+    and above 33-50%), but longer runs are the harder tasks, so this does not
+    show that context length causes failures. `codeagent` steps mostly lack
+    token counts (smolagents' path), so it is not part of this analysis.
+  - **Sandbox memory.** The trusted program wrapper and kernel bridge now
+    report the container's cgroup `memory.peak` with each program run, cell,
+    and session end (`memory_peak_bytes` on `SandboxRun`, `CellResult`,
+    `SessionEnd`; carried in `programs.record_json`, no schema change; older
+    records read as None). Tests (marker `docker`): a 200 MB allocation is
+    reported between 200 and 512 MB, the limit test reports more than 400 MB,
+    and the peak never falls across cells and session end. Measured on the
+    recorded workload, with no model: every cell of each run of
+    `rc0404-dev-pass2-given_files`, re-executed in order in a fresh kernel
+    session, then the final program in a fresh container
+    (`data/measurements/sandbox_memory_rc0404-dev-pass2-given_files.json`,
+    benchmark-derived, local only; script not in the repo).
+    The re-execution matches the original cell outcomes: 19 non-`ok` cells
+    in both, no kernel restart. Peak per kernel session (container,
+    strace and bridge included): median 81 MiB, p90 139 MiB, maximum 300 MiB
+    (`wildfire-easy-3`, 26 MiB of input). Final-program reruns: median 72
+    MiB, p90 108 MiB, maximum 236 MiB. The largest task input is 110 MiB.
+    So the development workload uses under 4% of the 8 GiB limit; the
+    limit is not binding on given files. Cell execution is about 2 min of
+    the whole pass (the model is the rest). D2/D4 add astronomy's larger
+    file groups (about 500 MB in all), which the per-run peak will now
+    show.
+    Across the six development agent batches (3,725 recorded cells, submit
+    checks, and reruns), no cell died or raised `MemoryError` under the
+    8 GiB limit; the one non-`ok`, non-`error` cell is a timeout the kernel
+    survived.
+    The model runner's memory is Ollama's (about 18 GB loaded for this
+    model, 29.9 GiB after the long reproducer in (n)) and is outside the
+    sandbox.
+  - **Failure labels.** Rule labels (`budget_exhausted` from the stop
+    reason) applied to the five unlabelled development batches:
+    `d3-dev-codeagent-off` 10 of 24 failed runs, `rc0404-dev-given_files` 3
+    of 22, `rc0404-dev-codeagent` 6 of 27, `rc0404-dev-pass2-given_files` 1
+    of 20, `rc0404-dev-pass2-codeagent` 8 of 24. The other 89 failed runs
+    are unlabelled; hand labelling them means reading the gold answers, and
+    the hand count in (k) already serves D3's acceptance. Label them when a
+    decision needs the `codeagent` breakdown (the literature-components
+    decision, or a revisit of P2).
+  - **Ollama auto-update: resolved.** In the v0.40.4 source
+    (`app/updater/updater.go`), the hourly checker reads
+    `settings.auto_update_enabled` before each download and downloads only
+    when it is set. The app log agrees: on rc0, v0.40.4 was reported
+    available every hour from 02:40 to 08:40 on 2026-10-14 with no download
+    (off), and a download was attempted at 09:18 (on). The column reads 1
+    now, so auto-update is on. Turn it off in the app's settings before
+    D4's model batches; the harness's refusal to resume a batch on another
+    version remains the backstop.
+  - **Decode speed on 0.40.4 (from (n)): still open, now a D4
+    precondition.** A recheck resent recorded rc0 requests at 8-16k context
+    in step order. It was abandoned after 6 steps (decode 18.7 to 24.1 tok/s
+    against 22.8 to 27.6 on rc0) because another local project began calling
+    the same model concurrently, which invalidates timing. The server log
+    rules that out as the cause of (n)'s slow steps: the only foreign
+    requests then (`/api/generate`, 10:32 to 10:34 local) ended before
+    `legal-hard-1`'s slow steps (10:35 to 10:40). Before D4's first model
+    batch, rerun the recheck with no other Ollama client and compare against
+    the rc0 figures above.
+  - **Operating rule, from the above.** Another client using the model
+    during a batch slows decode and can evict the runner. Model batches need
+    the Ollama server to themselves; check `/api/ps` and the server log
+    for foreign requests over a batch's window before reporting its timing.
 
 ## D4 — End to end with provenance
 
@@ -1691,7 +1780,7 @@ here.
 | Bounded iteration: a debug-attempt cap, regenerate from scratch after N similar failures, and a termination check. A task DAG is the larger option. | Partly: forced re-plan on repeated error, budgets, and the D5 self-correction ablation; no explicit caps or DAG | D3 loop controls; caps tuned in the D5 ablation | AutoKaggle (cap 5, regenerate after 3, plateau at 10-15 attempts); Data Interpreter task and action graphs; DA-Code failure modes. The graph ablation does not separate planning from debugging (medium) |
 | Explore-first enforcement: the agent must inspect real files, schemas, and dtypes before writing analysis code, with "data not found" and "data misread" as separate failure classes. | Mostly: cards, given-files runs, and the failure taxonomy; no enforced inspection step | D3 loop and taxonomy | DSBench and DA-Code qualitative failure analyses (medium-low) |
 | Curated library of pre-validated cleaning tools. The schemas must stay byte-stable for prefix caching. | No | After D3 measurements, if wrangling errors dominate the taxonomy | AutoKaggle: valid submissions 0.58 to 0.88 with cleaning tools; feature-engineering tools added nothing; 4 tasks (medium-low) |
-| Compaction policy for long runs, for example an append-only prefix with occasional summary checkpoints. | No: context is append-only by design | Decide in D3 from measured context growth | AIDE summarizes a solution tree instead of appending history. This conflicts with prefix reuse, so it is a trade-off, not evidence against append-only (medium) |
+| Compaction policy for long runs, for example an append-only prefix with occasional summary checkpoints. | No: context is append-only by design | Decided in D3 (o): stay append-only; revisit if D4 context grows past the trigger there | AIDE summarizes a solution tree instead of appending history. This conflicts with prefix reuse, so it is a trade-off, not evidence against append-only (medium) |
 | Retrieval of prior solutions coupled to run feedback. | No | Defer. It needs a case bank built from ledger runs, which raises the contamination risks this project already guards against. | DS-Agent ReviseRank, 12 tasks with GPT-4 (low). Snowflake Cortex Analyst retrieves analyst-verified queries (vendor design, no ablation) |
 | Value index for discovery: the index job adds the distinct values of low-cardinality string columns to what `rag_search` can match, so a question naming a specific city, agency, or category finds files whose cards did not sample that value. Never an agent tool. | No: cards list at most `max_example_values` values per column | D2 retrieval-only ablation on file recall (no model calls) | Snowflake Cortex Agents pair semantic views with Cortex Search to match literal values in high-cardinality fields (vendor design, no ablation) (low) |
 | Stated interpretation: an `assumptions` field in `submit_answer` listing the interpretation choices the agent made, recorded in the ledger; "had to resolve an ambiguity" then becomes a candidate D6 abstention signal. Overlaps the analysis-decision record in the statistical-validity row. | No | D3 answer schema (before tool schemas are frozen for prefix caching); signal tested in D6 | Snowflake Cortex Analyst's classification agent rejects ambiguous questions rather than answer them misleadingly (vendor design, no ablation) (low) |
@@ -1753,8 +1842,15 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
   batches, and ignored. `num_ctx` is set in `config/local.yaml` (262144, the
   machine's VRAM-based default on 0.35.1 and 0.40.4-rc0) so it cannot follow
   free memory; `config/example.yaml` leaves it to the operator. D1 and D3 results through (k) were recorded on 0.35.1. App
-  auto-update was turned off in the app for the rc; whether that setting
-  held is unresolved (see (n)).
+  auto-update was off overnight on rc0 and is on since the 0.40.4 install
+  (see (o)); turn it off before D4's batches.
+- Context stays strictly append-only within a run; no compaction (D3,
+  2026-10-14; see D3 progress (o)). On the development passes the largest
+  context is 54k tokens of 262k, each step's prefill tracks the appended
+  tokens, not the context, and decode slows about 8% from under 8k to 8-16k
+  context. One compaction would re-prefill the whole context, about 150 s
+  at 16k, to save roughly 3 s per 1,000 output tokens. Revisit if a D4 run
+  passes 64k tokens or the p90 run passes 32k.
 
 
 - The main model is `qwen3.8:27b-mlx` through Ollama.
@@ -1791,7 +1887,5 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
   deterministic and outside the model unless a local 27B run shows it can do
   them with an acceptable false-positive rate. Decide after D3 failure-taxonomy
   counts exist.
-- Long-run context compaction versus strictly append-only context. Decide in D3
-  from measured context growth and cache-reuse figures.
 - The judge model and spend cap, only if an upstream-compatible judged
   KramaBench comparison or D7 is explicitly chosen.

@@ -19,7 +19,8 @@ sealed until D5. No hosted model was called.
 - Agent conditions share the sandbox image, packages, labelled input files,
   scorer, and budgets: 20 steps, 8,192 output tokens per request, 4,000
   characters per tool output, 300 s per cell, 30 min per task. Hitting a
-  budget scores 0.
+  budget scores 0. The sandbox allows 8 GiB; the measured peak per run is
+  at most 300 MiB (median 81 MiB), so memory is not a binding limit here.
 - Primary set: the **41 development tasks not used for tuning**. The other 12
   (the sample) were read next to their gold answers while tuning the agent,
   which biases comparisons toward `given_files`; they are reported alongside
@@ -94,7 +95,8 @@ budget exhausted 1. Typical analysis errors are a skipped qualifier in the
 question, a column or flag not inspected, or a tool output cut at its cap.
 Not all failures are the agent's: two tasks name a file absent from the
 benchmark repository, and three string answers cannot match under the local
-string scorer. `codeagent` failures are not yet labelled.
+string scorer. `codeagent` failures are labelled only where the stop reason
+decides it (budget exhausted, by rule); the rest are not yet labelled.
 
 ## Limitations
 
