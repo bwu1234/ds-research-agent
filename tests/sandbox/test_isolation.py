@@ -154,6 +154,17 @@ def test_memory_limit(run: Run) -> None:
     """)
     assert r.exit_code != 0
     assert not r.timed_out
+    assert r.memory_peak_bytes is not None and r.memory_peak_bytes > 400 * 2**20
+
+
+def test_memory_peak_is_reported(run: Run) -> None:
+    r = run("""
+        b = bytearray(200 * 1024 * 1024)
+        print('{"answer": 1}')
+    """)
+    assert r.exit_code == 0
+    assert r.memory_peak_bytes is not None
+    assert 200 * 2**20 <= r.memory_peak_bytes <= 512 * 2**20
 
 
 def test_process_limit(run: Run) -> None:

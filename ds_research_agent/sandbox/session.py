@@ -61,6 +61,9 @@ class CellResult(_Frozen):
     # Reads whose trace lines were written during this cell.
     audit: AuditResult
     observed_reads: list[ObservedRead]
+    # The container's peak memory since the session started; None before
+    # it was recorded (older ledgers) or if the bridge could not read it.
+    memory_peak_bytes: int | None = None
 
     @property
     def kernel_alive(self) -> bool:
@@ -78,6 +81,7 @@ class SessionEnd(_Frozen):
     audit: AuditResult
     observed_reads: list[ObservedRead]
     scratch_dir: Path
+    memory_peak_bytes: int | None = None
 
 
 class KernelSession:
@@ -176,6 +180,7 @@ class KernelSession:
             wall_s=round(int(msg.get("wall_ns", 0)) / 1e9, 3),
             audit=audit,
             observed_reads=self._reads(audit),
+            memory_peak_bytes=msg.get("memory_peak_bytes"),
         )
 
     def close(self) -> SessionEnd:
@@ -210,6 +215,7 @@ class KernelSession:
             audit=audit,
             observed_reads=self._reads(audit),
             scratch_dir=self.scratch,
+            memory_peak_bytes=msg.get("memory_peak_bytes"),
         )
         return self._end
 
