@@ -27,7 +27,10 @@ memory. D2 is in progress: profiler version 2 gives 1,741 of the 1,742
 benchmark files content cards, each catalogue version has its own config,
 corpus, and index, and retrieval-only discovery scoring
 (`eval/kramabench/discovery.py`, no model) has BM25 and rag-toolkit baselines
-(D2 progress (a)). Group cards and agentic discovery are not built yet.
+(D2 progress (a)). The group-card rule is decided from an oracle measurement
+(`eval/kramabench/grouping.py`, D2 progress (b)): schema or name-pattern
+families, with glob member filters on group IDs. Group cards, member
+filters, and agentic discovery are not built yet.
 rag-toolkit is pinned at `0f6eb38`. The harness refuses an Ollama version listed in
 `model.refuse_server_versions` (0.40.0 to 0.40.3 crash on prefix-cache reuse),
 records the version on every batch, stops a batch if the version changes
@@ -78,6 +81,7 @@ uv run pytest -m live -s                 # local model + live rag-toolkit server
 uv run python -m ds_research_agent.catalogue --config config/local.kramabench-v2.yaml build
 uv run python -m ds_research_agent.catalogue --config config/local.kramabench-v2.yaml index   # ~15 min; writes index.log
 uv run python -m eval.kramabench.discovery --config config/local.kramabench-v2.yaml --ranker rag --mode hybrid --scope domain --out data/measurements/discovery/rag-hybrid-v2-domain.json   # or --ranker bm25; --scope pooled
+uv run python -m eval.kramabench.grouping --config config/local.kramabench-v2.yaml --out data/measurements/discovery/grouping-v2.json   # group-rule oracle, ~1 min, no index
 # KramaBench at the pinned commit, split into agent-visible and evaluator stores
 uv run python -m eval.kramabench.fetch --config config/local.yaml fetch   # or verify
 uv run python scripts/measure_tool_calls.py --config config/local.yaml --out data/measurements/tool_calls.json

@@ -141,29 +141,48 @@ Some collections are families of similar files: astronomy has 1,556 files,
 and KramaBench's `data_sources` uses globs. Per-file cards for such families
 are near-identical, so retrieval cannot rank them, and selecting hundreds of
 IDs one at a time is impractical. The profiler therefore also writes a group
-card for each directory or shared-schema family:
+card for each file family. Two rules make families, within one domain and
+with at least two members (decided in D2 progress (b)):
+
+- **schema**: the same format and the same column names in every table the
+  profiler finds;
+- **pattern**: the same file name once digit runs are masked
+  (`water-body-testing-#.csv`), across directories. A name with no digit run
+  is not grouped this way, and members must share the schema when the
+  profiler finds one.
+
+Groups may overlap; two rules that yield the same member set make one group,
+recording both rules. Directory alone is not a rule: in a flat directory it
+only repeats the domain filter. Each group card has:
 
 - front matter with `card_kind: group`, `group_id`, `domain`, member count,
   and the shared format (file cards carry `card_kind: file` and their
-  `group_id`, if any);
+  group IDs, if any);
 - the shared schema, with columns that differ across members flagged;
 - the member list (path, size, hash), with naming patterns such as date
   ranges summarised when the list is long.
 
-A discovered group ID can be passed to `read_card` and `run_python`, selecting
-exactly its listed members. Grouping is deterministic. Its granularity
-(directory, schema, or both) is settled on development tasks in D2.
+A discovered group ID can be passed to `read_card` and `run_python`, alone
+(all its members) or with a **member filter**: one or more globs matched
+against member paths, `fnmatch` style and case-sensitive. The selection is
+the members matching any glob. Tasks often need part of a family (a year of
+715 daily files), and `data_sources` itself writes such selections as globs.
+The application expands the filter against the group's listed members before
+anything is mounted; a filter matching no member is an error returned to the
+model, not an empty selection. `read_card` with a filter lists the matching
+members (bounded by configuration), so the model can check a filter before
+running code. Grouping and filter expansion are deterministic.
 
 ## Durable records
 
 | Record | Minimum fields |
 |---|---|
-| CatalogueEntry | catalogue ID, domain, file path, size, content hash, format, card hash, profiler version, parse status, group ID if any |
-| CatalogueGroup | group ID, domain, grouping rule, member catalogue IDs, card hash, profiler version |
+| CatalogueEntry | catalogue ID, domain, file path, size, content hash, format, card hash, profiler version, parse status, group IDs if any |
+| CatalogueGroup | group ID, domain, grouping rules, member catalogue IDs, card hash, profiler version |
 | CatalogueGeneration | generation ID, profiler version, entry and group counts, index directory, rag-toolkit revision, build time |
 | Run | run ID, task ID, parent task ID if applicable, split, condition, configuration hash, model name and settings, Ollama version, catalogue generation, input manifest, access policy, `answer_type` visibility, scoring profile, start/end time, stop reason, failure category (assigned in review) |
 | Step | run ID, sequence number, model turn or tool call, input, output, prompt tokens evaluated, prompt tokens cached, thinking tokens, output tokens, tool-call repair retries, duration |
-| Program | run ID, step, kernel session ID and cell sequence, source text, sandbox image ID and package list hash, selected input and group IDs/hashes, exit status, stdout/stderr (bounded, with truncation flag), runner-observed data-file reads/hashes, audit mechanism/version and completeness |
+| Program | run ID, step, kernel session ID and cell sequence, source text, sandbox image ID and package list hash, selected input and group IDs, member filters, and the expanded file IDs/hashes, exit status, stdout/stderr (bounded, with truncation flag), runner-observed data-file reads/hashes, audit mechanism/version and completeness |
 | Answer | run ID, value, answer type, model-claimed input IDs, final program reference, abstained flag, confidence |
 | Verification | answer ID, fresh rerun program reference and output, comparator version/tolerances, reproduced flag, observed-access verified flag, mismatch or audit failure detail |
 | Score | run ID, scorer commit/profile, answer score, strict correctness, verified success (nullable for no-program baselines), sub-task scores, judge configuration/response references if opted in |

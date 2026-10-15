@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group cards and agentic discovery next); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); group cards and agentic discovery next); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -727,6 +727,77 @@ agentic version are reported with their time cost.
     environment failures, and whether `run_python` accepts group IDs. Then
     agentic discovery, with its time cost. Card-content ablations stay
     optional.
+- **(b) Group-card rule and member filters, decided 2026-10-15.** No
+  model and no index: `eval.kramabench.grouping` re-profiles the v2
+  catalogue for column names (49 s; 104 of 1,742 files have no table) and
+  scores candidate rules against the 53 development gold sets as an
+  *oracle*: how many selections a perfect chooser needs, and how many
+  non-gold files they bring. It bounds what a ranker over each rule's cards
+  could reach, not whether search finds them (that is the v3 index
+  measurement). Output in `data/measurements/discovery/grouping-v2.json`,
+  kept local.
+  - **Rules.** *directory* (parent directory); *schema* (format plus every
+    table's column names); *pattern* (file name with digit runs masked,
+    across directories; names without a digit run are not grouped, and
+    members must share the schema when one exists); *directory+schema*; and
+    two overlapping unions, *union* (all three) and *schema|pattern*. A
+    group needs two or more members; other files keep only their file card.
+  - **Policies.** *exact*: a group counts only if all its members are gold.
+    *range*: a group restricted to one contiguous run of its name-sorted
+    members, all gold (what a glob filter can select). *cover*: every group
+    with a gold member is taken whole, bringing extra files. Exact and range
+    counts are a greedy set cover, optimal for partitions and an upper bound
+    for the unions.
+  - **Results**, mean selections per task with a 95% interval (percentile
+    bootstrap of tasks within domain), and the share of tasks within 10:
+
+    | Rule | Groups | exact | range | cover (extra files) | range ≤10 |
+    |---|---|---|---|---|---|
+    | file cards only | 0 | 10.4 [4.7, 16.9] | 10.4 | 10.4 (0) | 0.85 |
+    | directory | 54 | 5.3 [2.5, 10.0] | 1.9 [1.5, 2.3] | 1.3 (83) | 0.98 |
+    | schema | 11 | 5.0 [2.3, 9.6] | 2.4 [1.8, 3.0] | 2.4 (68) | 0.96 |
+    | pattern | 10 | 9.7 [4.2, 16.3] | 6.9 [2.9, 11.6] | 6.9 (67) | 0.93 |
+    | union | 62 | 4.8 [2.1, 9.4] | 1.7 [1.5, 1.9] | 1.5 (80) | 1.00 |
+    | **schema\|pattern** | **17** | **4.8 [2.1, 9.4]** | **2.0 [1.6, 2.4]** | 1.9 (68) | **1.00** |
+
+    directory+schema equals schema here: no schema family crosses a
+    directory.
+  - **Partial families decide it, not granularity.** Astronomy tasks take
+    2, 10, or 123 of a 715-file family, each a single contiguous run in
+    name order, which `data_sources` writes as date globs. With whole
+    groups, every rule leaves astronomy at 26-28 selections per task, or
+    brings up to 1,447 extra files (355 MB). With one range per group,
+    schema|pattern needs 2.2.
+  - **No single key fits every domain.** Legal's state files have no digits
+    (schema groups them, 52 each); the SP3 orbit files sit in 37 per-day
+    directories (only pattern groups them); environment's
+    `water-body-testing-YYYY` family is found by both.
+  - **Directory is rejected.** In a flat directory a directory group is the
+    whole domain, which the domain filter already is, and its "ranges" are
+    alphabetical accidents: environment hard-8 falls from 9 selections to 5
+    only through adjacent unrelated files. 40 of its 54 groups are one day's
+    `.sp3` and `.HDR` pair.
+  - **Two pattern fixes, found by listing the groups.** The first pattern
+    rule paired the identically named state files across legal's two
+    directories (52 pairs) and grouped seven different supplementary
+    workbooks (`mmc1`-`mmc7.xlsx`). Requiring a digit run and a shared
+    schema removed them: schema|pattern went from 70 groups to 17 with the
+    same exact and range counts (cover 2.85 to 1.94). All 17 were checked by
+    hand.
+  - **Decision.** Group by schema or pattern, overlapping allowed, and let
+    a group ID take a member filter (globs over member paths, expanded
+    against the member list before mounting and recorded with the program).
+    Contract in [data-and-provenance.md](data-and-provenance.md#group-cards).
+  - **Limitations.** The range policy counts contiguous runs; a run that
+    crosses a month or year boundary may need several globs, so it is a
+    lower bound on filters written. The eight beach datasheets form no group:
+    each file's first row is a different title, so column names differ;
+    title-row detection belongs in profiler v3. Environment hard-8 and hard-9
+    stay at 9 selections until then.
+  - **Next.** Profiler v3 writes the 17 group cards (with title-row
+    detection), a v3 corpus and index, and group-level retrieval scoring
+    against D2 progress (a). Then `read_card` and `run_python` accept group
+    IDs with filters, then agentic discovery.
 
 ## D3 — Sandbox and analysis with given files
 
@@ -1965,6 +2036,9 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
   auto-update is on, kept on for security fixes at the user's decision
   (2026-10-14, see (o)); a new version is checked with the smoke batch
   before results on it are pooled or compared.
+- Group cards: schema or name-pattern families, overlapping, not
+  directories; a group ID takes an optional member filter of globs over
+  member paths (D2, 2026-10-15; see D2 progress (b)).
 - Context stays strictly append-only within a run; no compaction (D3,
   2026-10-14; see D3 progress (o)). On the development passes the largest
   context is 54k tokens of 262k, each step's prefill tracks the appended
@@ -2001,8 +2075,6 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
 
 ## Open decisions
 
-- Group-card granularity: by directory, by shared schema, or both. Decide in
-  D2 from development retrieval results.
 - Which candidate components from the literature survey to build, in what
   order, and whether each needs its own ablation. Statistical checks should be
   deterministic and outside the model unless a local 27B run shows it can do

@@ -148,8 +148,9 @@ expose a shared service with unrelated base corpora available.
 
 `card_kind` (`file` or `group`) and `group_id` support group cards (see
 [data-and-provenance.md](data-and-provenance.md#group-cards)). Group cards
-have no single `file_path`; the profiler writes the group directory there so
-the header template stays valid.
+have no single `file_path`; the profiler writes the members' common directory
+there (a pattern group can span directories) so the header template stays
+valid.
 
 The base configuration embeds queries through the same Ollama daemon as the
 agent's model (`embedding.provider: ollama`, `qwen3-embedding:0.6b`). D0
