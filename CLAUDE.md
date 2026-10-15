@@ -24,8 +24,8 @@ and the custom loop versus `codeagent` is inconclusive. The harness refuses an O
 `model.refuse_server_versions` (0.40.0 to 0.40.3 crash on prefix-cache reuse),
 records the version on every batch, refuses to resume a batch on a different
 version, and warns when `compare` pairs batches from different versions. D1 and
-D3 results through (k) were recorded on 0.35.1; Ollama runs 0.40.4-rc0 since
-2026-10-12. `model.options.num_ctx` is set explicitly in `config/local.yaml`; the example
+D3 results through (k) were recorded on 0.35.1 and (m) on 0.40.4-rc0; Ollama
+runs 0.40.4 since 2026-10-14. `model.options.num_ctx` is set explicitly in `config/local.yaml`; the example
 leaves it for the operator to size to their hardware.
 Everything else is planned. Do not
 describe planned modules, tools, commands, evaluations, or integrations as

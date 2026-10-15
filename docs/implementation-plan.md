@@ -1441,7 +1441,7 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
   - **Setup.** Tarball sha256 checked against the release's
     `sha256sum.txt`, code signature valid (same team as the app). Run from
     `~/ollama-rc/` on port 11435 with a private copy of the manifests and the
-    blobs symlinked; the pinned app on 11434 was not touched. M2 Max, 32 GB.
+    blobs symlinked; the pinned app on 11434 was not touched. M2 Max, 64 GB.
     Harness runs used `DSRA_MODEL__HOST` and `DSRA_MODEL__SERVER_VERSION`
     overrides. These are compatibility checks, not D1/D3 results.
   - **Panic: not reproduced.** A tool-call turn then a cache-hit turn (the
@@ -1487,7 +1487,7 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     them. Step-level output is not reproducible between runs on either
     version, so a rerun on the new pin is a new baseline, not a replication.
   - **Next.** On the final v0.40.4, rerun the reproducer, the cache script,
-    and the smoke batch, and change the pin to it.
+    and the smoke batch, and change the pin to it. (Done in (n).)
 
 - **(m) 12-task sample and development pass on 0.40.4-rc0, 2026-10-13/14.**
   Batches `rc0404-sample-{given_files,codeagent}` (12 tasks) and
@@ -1531,6 +1531,57 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     script (not in the repo), because `compare` takes two batches.
   - **Not done:** failure labels for the failed runs of these batches
     (22 `given_files`, 26 `codeagent` on the dev split) are not applied.
+
+- **(n) Ollama v0.40.4 (final) installed, 2026-10-14.** Released 2026-10-12,
+  not a prerelease. 26 commits after rc0; on this machine only three touch
+  the runtime: ollama#18886 (MLX: skip stateful cleanup while a panic
+  unwinds, so the first error is reported; normal generation unchanged),
+  #18976 (decision-model scoring on MLX) and #18973 (multimodal embedding
+  load). The rest are docs, CLI, CI, and a CUDA-only Gemma change.
+  - **Install.** `Ollama.dmg` sha256 checked against the release's
+    `sha256sum.txt`, signature valid, notarized, same team ID as the rc0 app.
+    Rollback copy of the rc0 app, the manifests, and the settings DB:
+    `~/ollama-rc/backup-0.40.4-rc0/`. Manifests unchanged after the install
+    (20 files, sha256 compared). Server reports `0.40.4`.
+  - **Auto-update, unresolved.** The settings DB column
+    `settings.auto_update_enabled` reads 1 in the current DB and in both
+    backups, including the 0.35.1 one taken before (l) turned auto-update off
+    in the app. Either the column is not that toggle or the toggle did not
+    persist; not checked in the app's UI. The harness still refuses to resume
+    a batch on a different version, so an update cannot pool silently.
+  - **Panic pattern: not reproduced.** A tool-call turn, then two cache-hit
+    turns (351/384 and 400/426 tokens reused), then a fresh 51.5k-token
+    prompt (larger than (l)'s 17.6k) that prefilled fully. Its uncapped
+    answer was cancelled by hand after about 10k output tokens; the runner
+    logged `context canceled` and stayed loaded. Over all checks here: 0
+    `panic` / `Maximum threads` lines; one HTTP 500, which is that cancelled
+    request. Reproducer: a one-off script (not in the repo).
+  - **Cache reuse matches rc0.** `data/measurements/prefix_cache_0.40.4.json`:
+    the same 4 scenarios and 23 turns, the same tool-call sequence, and
+    every turn's prompt-eval time within 0.3 s of
+    `prefix_cache_0.40.4-rc0.json`.
+  - **Agent smoke**, two batches, think off, commit `e0d7666`:
+    `given_files-smoke-0404` (answer score 0.75, as rc0 and `-d2d`) and
+    `given_files-smoke-0404-b` (0.50; `legal-hard-1` scored 0.004, the
+    task's known run-to-run variation). All four runs submitted, reproduced,
+    and passed observed access; both batches replay with 0 differences.
+  - **Decode-speed signal, open.** In `given_files-smoke-0404`,
+    `legal-hard-1` took 19 steps (rc0: 14) and 505 s (rc0: 202 s). From
+    8k context, decode fell to about 15 tok/s on 6 of its 7 steps;
+    the server log shows the adaptive speculative-decoding depth falling
+    from 4 to 0. On rc0, 0 of 318 `given_files` steps at 8k to 16k context
+    were below 17 tok/s, and 1 of about 2,500 requests in the retained rc0
+    server logs had draft depth near 0. Below 8k, 0.40.4 matches rc0
+    (26.5 and 23.9 tok/s against 25.8 and 25.1). That batch ran after the
+    51.5k-token reproducer, with the runner holding 29.9 GiB and system swap
+    at 14.6 of 16 GB (other applications). After unloading the model, the
+    rerun `-b` decoded at rc0 speed with no depth collapse, but its legal run
+    stopped at 10 steps, below 8k context, so the slow regime was not
+    exercised. Not attributed to the version: no rc0-to-final commit
+    touches speculation. The next batch that reaches 8k context will settle
+    it; compare decode tok/s at 8k to 16k against the rc0 figure above.
+  - **Consequence.** (m) results are on 0.40.4-rc0 and are not pooled with
+    new batches on 0.40.4. `refuse_server_versions` is unchanged.
 
 ## D4 — End to end with provenance
 
@@ -1692,8 +1743,8 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
   2026-10-09; see D3 progress).
 - Persistent kernel: a minimal REPL behind a trusted bridge over the
   container's stdio, not ipykernel (D3, 2026-10-09; see D3 progress).
-- Ollama version is recorded, not pinned (2026-10-12). Ollama runs 0.40.4-rc0
-  (prerelease); `model.refuse_server_versions` lists versions known to fail
+- Ollama version is recorded, not pinned (2026-10-12). Ollama runs 0.40.4
+  (final, since 2026-10-14; 0.40.4-rc0 from 2026-10-12; see D3 progress (n)); `model.refuse_server_versions` lists versions known to fail
   (0.40.0 to 0.40.3: 0.40.1 is listed on the assumption that it shares
   0.40.0's MLX build, not from a test). The harness stamps the version on each
   batch, refuses to resume a batch on another version or one with no recorded
@@ -1702,7 +1753,8 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
   batches, and ignored. `num_ctx` is set in `config/local.yaml` (262144, the
   machine's VRAM-based default on 0.35.1 and 0.40.4-rc0) so it cannot follow
   free memory; `config/example.yaml` leaves it to the operator. D1 and D3 results through (k) were recorded on 0.35.1. App
-  auto-update is off until the final v0.40.4 ships.
+  auto-update was turned off in the app for the rc; whether that setting
+  held is unresolved (see (n)).
 
 
 - The main model is `qwen3.8:27b-mlx` through Ollama.
