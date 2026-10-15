@@ -183,10 +183,9 @@ def run_index(cat: CatalogueSettings, svc: RagServiceSettings) -> Generation:
     _rag_cli_logged(svc, log, "index", "--corpus", cat.corpus, "--reset")
     index_s = time.monotonic() - start
     report = _json_report(_rag_cli(svc, "index-report", "--corpus", cat.corpus, "--json").stdout)
-    if report.get("documents") != len(manifest.entries):
-        raise RuntimeError(
-            f"index holds {report.get('documents')} documents, manifest {len(manifest.entries)}"
-        )
+    cards = len(manifest.entries) + len(manifest.groups)
+    if report.get("documents") != cards:
+        raise RuntimeError(f"index holds {report.get('documents')} documents, manifest {cards}")
     index = report.get("index", {})
     if index.get("missing") or index.get("stale") or index.get("changed"):
         raise RuntimeError(f"index out of sync with cards: {index}")
@@ -200,7 +199,7 @@ def run_index(cat: CatalogueSettings, svc: RagServiceSettings) -> Generation:
         profiler_version=manifest.profiler_version,
         corpus=cat.corpus,
         entry_count=len(manifest.entries),
-        group_count=0,
+        group_count=len(manifest.groups),
         cards_dir=str(cat.cards_dir.resolve()),
         index_dir=str(svc.index_dir.resolve()),
         rag_toolkit_revision=svc.revision,

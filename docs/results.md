@@ -111,7 +111,7 @@ decides it (budget exhausted, by rule); the rest are not yet labelled.
   floor for what the model could do with more tokens.
 - Given files only: the agent has not yet searched the catalogue itself. D2
   measures retrieval-only discovery so far (implementation plan, D2 progress
-  (a)); end-to-end discovery is D4.
+  (a) and (c)); end-to-end discovery is D4.
 - These figures describe this agent with this local model. They are not
   comparable to published KramaBench scores of other systems, which use
   different models and judged scoring.

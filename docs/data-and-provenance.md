@@ -135,6 +135,21 @@ one `.cdf` file stays `unsupported`.
 Card text is untrusted file content. Previews are clipped per line, and
 code-fence and front-matter injection are tested on synthetic files.
 
+### D2 additions (`PROFILER_VERSION = 3`)
+
+- **CSV title rows.** Report-style exports put a title, and sometimes a row
+  of labels, above the real header. When the first row has two or more cells
+  and only the first is non-empty, the profiler looks up to
+  `catalogue.csv_title_scan_rows` rows further for a header (two or more
+  cells, all filled, none numeric). If it finds one, the title, the header
+  line number, and the labels in between become facts on the card, and the
+  columns come from the header. Otherwise the first row stays the header.
+  On KramaBench it applies to 137 files: the eight beach datasheets and 129
+  of the 131 legal CSVs.
+- **Group cards** for the families in [Group cards](#group-cards), under
+  `<domain>/_groups/g-<hash>.md`. File cards of members carry the group IDs
+  in front matter (`group_id`, comma-separated if several) and in the body.
+
 ### Group cards
 
 Some collections are families of similar files: astronomy has 1,556 files,
@@ -142,10 +157,13 @@ and KramaBench's `data_sources` uses globs. Per-file cards for such families
 are near-identical, so retrieval cannot rank them, and selecting hundreds of
 IDs one at a time is impractical. The profiler therefore also writes a group
 card for each file family. Two rules make families, within one domain and
-with at least two members (decided in D2 progress (b)):
+with at least two members (decided in D2 progress (b), schema refined in
+(c); configured as `catalogue.group_rules: [directory+schema, pattern]`):
 
-- **schema**: the same format and the same column names in every table the
-  profiler finds;
+- **directory+schema**: the same directory, format, and column names in
+  every table the profiler finds. Families stop at a directory: legal's
+  identity-theft and fraud state tables share column names but are
+  different measures;
 - **pattern**: the same file name once digit runs are masked
   (`water-body-testing-#.csv`), across directories. A name with no digit run
   is not grouped this way, and members must share the schema when the
@@ -155,12 +173,16 @@ Groups may overlap; two rules that yield the same member set make one group,
 recording both rules. Directory alone is not a rule: in a flat directory it
 only repeats the domain filter. Each group card has:
 
-- front matter with `card_kind: group`, `group_id`, `domain`, member count,
-  and the shared format (file cards carry `card_kind: file` and their
-  group IDs, if any);
+- front matter with `card_kind: group`, `group_id` (also its
+  `catalogue_id`), `domain`, `members`, `group_rules`, the shared format,
+  total size, and the members' common directory as `file_path` (file cards
+  carry `card_kind: file` and their group IDs, if any);
 - the shared schema, with columns that differ across members flagged;
-- the member list (path, size, hash), with naming patterns such as date
-  ranges summarised when the list is long.
+- the name pattern, with the first and last value of each varying digit run
+  (dates, sequence numbers), and one example member's table or text preview;
+- the member list (path and size), up to `catalogue.group_member_list_limit`
+  members, then its first and last halves. Members' hashes are in the
+  manifest.
 
 A discovered group ID can be passed to `read_card` and `run_python`, alone
 (all its members) or with a **member filter**: one or more globs matched

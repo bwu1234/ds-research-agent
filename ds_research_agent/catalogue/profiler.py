@@ -1,9 +1,10 @@
 """Deterministic dataset-card profiler.
 
-Walks the data root in sorted order and writes one Markdown card per file plus
-a manifest. No LLM, no clock, no randomness: the same files and profiler
-version produce byte-identical cards. Card text quotes data values, which are
-untrusted; cards are evidence for the agent, never instructions.
+Walks the data root in sorted order and writes one Markdown card per file, one
+per file family (group; see ``grouping``), and a manifest. No LLM, no clock,
+no randomness: the same files and profiler version produce byte-identical
+cards. Card text quotes data values, which are untrusted; cards are evidence
+for the agent, never instructions.
 """
 
 from __future__ import annotations
@@ -13,24 +14,29 @@ import csv
 import datetime as dt
 import hashlib
 import io
+import itertools
 import json
 import re
 import shutil
 import sqlite3
 import struct
 import zipfile
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import openpyxl
 import yaml
 from defusedxml import ElementTree
 
+from ds_research_agent.catalogue.grouping import Family, Schema, families, name_pattern
+from ds_research_agent.catalogue.grouping import heading as group_heading
 from ds_research_agent.catalogue.models import (
     CatalogueEntry,
+    CatalogueGroup,
     Manifest,
     ParseStatus,
     SkippedPath,
@@ -39,7 +45,7 @@ from ds_research_agent.config import CatalogueSettings
 
 # Bump whenever card text or entry fields change for the same input; a new
 # version means a new catalogue generation and a full reindex.
-PROFILER_VERSION = 2
+PROFILER_VERSION = 3
 
 # Reader the sandbox is expected to use, by format. Package set decided in D3
 # (D3 progress (b)); each was checked against every benchmark file.
@@ -200,18 +206,24 @@ def _delimiter(head: str) -> str:
     return best[2] if best[0] > 0 else ","
 
 
+def _is_title(row: Sequence[str]) -> bool:
+    """A title row: two or more cells, only the first non-empty."""
+    return len(row) >= 2 and bool(row[0].strip()) and not any(c.strip() for c in row[1:])
+
+
+def _is_header(row: Sequence[str]) -> bool:
+    """A header row after a title: two or more cells, all filled, none numeric."""
+    return len(row) >= 2 and all(
+        c.strip() and not (_INT.match(c.strip()) or _FLOAT.match(c.strip())) for c in row
+    )
+
+
 def profile_csv(path: Path, s: CatalogueSettings) -> Profile:
     # Decodes the whole file to pick an encoding; acceptable for D0 fixtures.
     # D2 must stream large files (wildfire is about 1 GB).
     text, encoding = _decode(path)
     delim = _delimiter(text[:SNIFF_BYTES])
     reader = csv.reader(io.StringIO(text, newline=""), delimiter=delim)
-    try:
-        header = next(reader)
-    except StopIteration:
-        raise ProfileError("empty file") from None
-    except csv.Error as e:
-        raise ProfileError(f"csv: {e}") from e
 
     def rows() -> Iterator[list[str]]:
         try:
@@ -219,9 +231,28 @@ def profile_csv(path: Path, s: CatalogueSettings) -> Profile:
         except csv.Error as e:
             raise ProfileError(f"csv line {reader.line_num}: {e}") from e
 
-    table = _table(None, header, rows(), s)
-    facts = (("Encoding", encoding), ("Delimiter", repr(delim)))
-    return Profile(facts=facts, tables=(table,))
+    it = rows()
+    header = next(it, None)
+    if header is None:
+        raise ProfileError("empty file")
+    facts = [("Encoding", encoding), ("Delimiter", repr(delim))]
+    # Report-style exports put a title (and sometimes a row of labels) above
+    # the real header; without this the title becomes the column names.
+    held: list[list[str]] = []
+    if s.csv_title_scan_rows and _is_title(header):
+        for row in it:
+            held.append(row)
+            if _is_header(row):
+                facts += [("Title", _clip(header[0], s)), ("Header line", str(len(held) + 1))]
+                above = ["; ".join(_clip(c, s) for c in r if c.strip()) for r in held[:-1]]
+                if any(above):
+                    facts.append(("Above the header", " / ".join(a for a in above if a)))
+                header, held = row, []
+                break
+            if len(held) == s.csv_title_scan_rows:
+                break
+    table = _table(None, header, itertools.chain(held, it), s)
+    return Profile(facts=tuple(facts), tables=(table,))
 
 
 def _scalar(v: Any) -> str | None:
@@ -578,6 +609,9 @@ def render_card(
         lines.append(f"Reader: {reader}")
     if status != "ok":
         lines.append(f"Parse status: {status}" + (f" ({error})" if error else ""))
+    if front.get("group_id"):
+        groups = ", ".join(f"`{g}`" for g in front["group_id"].split(","))
+        lines.append(f"Member of group: {groups}")
     if profile is not None:
         lines += [f"{k}: {v}" for k, v in profile.facts]
     lines.append("")
@@ -621,7 +655,23 @@ def _walk(root: Path) -> tuple[list[Path], list[SkippedPath]]:
     return files, skipped
 
 
-def profile_file(path: Path, root: Path, s: CatalogueSettings) -> tuple[CatalogueEntry, str]:
+@dataclass(frozen=True)
+class _Profiled:
+    """One file's profile, before its card is rendered (cards need group IDs)."""
+
+    entry: CatalogueEntry  # card_hash is filled in when the card is rendered
+    front: dict[str, str]
+    profile: Profile | None
+
+
+def table_schema(profile: Profile | None) -> Schema:
+    if profile is None:
+        return None
+    tables = tuple(tuple(c.name for c in t.columns) for t in profile.tables if t.columns)
+    return tables or None
+
+
+def _profile_file(path: Path, root: Path, s: CatalogueSettings) -> _Profiled:
     rel = path.relative_to(root).as_posix()
     domain = rel.split("/", 1)[0]
     fmt = path.suffix.lower().lstrip(".") or "none"
@@ -652,7 +702,6 @@ def profile_file(path: Path, root: Path, s: CatalogueSettings) -> tuple[Catalogu
         "parse_status": status,
         "profiler_version": str(PROFILER_VERSION),
     }
-    card = render_card(front, profile, status, error, s)
     entry = CatalogueEntry(
         catalogue_id=cid,
         domain=domain,
@@ -661,12 +710,132 @@ def profile_file(path: Path, root: Path, s: CatalogueSettings) -> tuple[Catalogu
         file_hash=front["file_hash"],
         format=fmt,
         document_id=f"{rel}.md",
-        card_hash=_sha256(card.encode()),
+        card_hash="",
         profiler_version=PROFILER_VERSION,
         parse_status=status,
         parse_error=error,
     )
-    return entry, card
+    return _Profiled(entry=entry, front=front, profile=profile)
+
+
+def _file_card(p: _Profiled, group_ids: tuple[str, ...], s: CatalogueSettings) -> str:
+    front = dict(p.front)
+    if group_ids:
+        front["group_id"] = ",".join(group_ids)
+    return render_card(front, p.profile, p.entry.parse_status, p.entry.parse_error, s)
+
+
+_RULE_TEXT = {
+    "directory": "same directory",
+    "schema": "same format and column names",
+    "directory+schema": "same directory, format, and column names",
+    "pattern": "same file name apart from digits",
+}
+
+
+def render_group_card(family: Family, members: Sequence[_Profiled], s: CatalogueSettings) -> str:
+    """A family's card: what members share, how they are named, and who they are.
+
+    Members' hashes are in the manifest; the card lists paths and sizes."""
+    paths = [m.entry.file_path for m in members]
+    names = [PurePosixPath(f).name for f in paths]
+    formats = sorted({m.entry.format for m in members})
+    fmt = formats[0] if len(formats) == 1 else "mixed"
+    total = sum(m.entry.size for m in members)
+    pattern = name_pattern(names)
+    heading = group_heading(names, family.directory or family.domain)
+    front = {
+        "title": f"{family.directory}/{heading}" if family.directory else heading,
+        "domain": family.domain,
+        "catalogue_id": family.group_id,
+        "group_id": family.group_id,
+        "file_path": family.directory,
+        "format": fmt,
+        "size": str(total),
+        "members": str(len(members)),
+        "group_rules": ",".join(family.rules),
+        "card_kind": "group",
+        "parse_status": "ok",
+        "profiler_version": str(PROFILER_VERSION),
+    }
+    fm = yaml.safe_dump(front, sort_keys=False, allow_unicode=True, width=10_000)
+    lines = ["---", fm.rstrip("\n"), "---"]
+    lines += [f"# {heading} ({family.domain}, group of {len(members)} files)", ""]
+    dirs = sorted({str(PurePosixPath(f).parent) for f in paths})
+    if len(dirs) == 1:
+        lines.append(f"Directory: `{dirs[0]}`")
+    else:
+        lines.append(f"Directories: {len(dirs)} under `{family.directory or '.'}`")
+    lines.append(f"Format: {fmt if fmt != 'mixed' else ', '.join(formats)}")
+    reader = READERS.get(fmt)
+    if reader:
+        lines.append(f"Reader: {reader}")
+    lines.append(f"Members: {len(members)} files, {total} bytes in all")
+    lines.append("Grouped by: " + "; ".join(_RULE_TEXT[r] for r in family.rules))
+    if pattern:
+        lines.append(f"Name pattern: `{pattern[0]}` (# is a run of digits that varies)")
+        if pattern[1]:
+            lines.append(
+                "Varying digits, first to last: "
+                + "; ".join(f"{lo} to {hi}" for lo, hi in pattern[1])
+            )
+    lines.append("")
+    lines += _group_columns(members, s)
+    example = members[0]
+    if example.profile is not None:
+        lines += [f"## Example member: `{example.entry.file_path}`", ""]
+        lines += [f"{k}: {v}" for k, v in example.profile.facts]
+        lines.append("")
+        for t in example.profile.tables[:1]:
+            lines += _render_table(t, s)
+        for title, body in example.profile.texts[:1]:
+            lines += [f"### {title}", "", "```text", *body, "```", ""]
+    lines += ["## Members", ""]
+    limit = s.group_member_list_limit
+    shown = list(range(len(members)))
+    if len(members) > limit:
+        half = max(limit // 2, 1)
+        shown = [*range(half), -1, *range(len(members) - half, len(members))]
+    for i in shown:
+        if i == -1:
+            lines.append(f"- … {len(members) - 2 * half} more …")
+        else:
+            m = members[i].entry
+            lines.append(f"- `{m.file_path}` ({m.size} bytes)")
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def _span(lo: int, hi: int) -> str:
+    return f"{lo} each" if lo == hi else f"{lo} to {hi}"
+
+
+def _group_columns(members: Sequence[_Profiled], s: CatalogueSettings) -> list[str]:
+    """Columns of the first table when every member has the same ones."""
+    firsts = [m.profile.tables[0] if m.profile and m.profile.tables else None for m in members]
+    if any(t is None for t in firsts):
+        return []
+    tables = [t for t in firsts if t is not None]
+    names = {tuple(c.name for c in t.columns) for t in tables}
+    if len(names) != 1 or not tables[0].columns:
+        return [f"Members have {len(names)} different column sets.", ""]
+    rows = [t.rows for t in tables]
+    out = [
+        f"## Columns (shared by all {len(tables)} members)",
+        "",
+        f"Rows per member: {_span(min(rows), max(rows))}; {sum(rows)} in all.",
+        "",
+        "| Column | Type in members |",
+        "|---|---|",
+    ]
+    for i, c in enumerate(tables[0].columns):
+        types = Counter(t.columns[i].type for t in tables)
+        if len(types) == 1:
+            cell = c.type
+        else:
+            cell = "differs: " + ", ".join(f"{k} ({n})" for k, n in sorted(types.items()))
+        out.append(f"| {_cell(c.name, s)} | {cell} |")
+    out.append("")
+    return out
 
 
 def build_catalogue(s: CatalogueSettings) -> Manifest:
@@ -678,25 +847,73 @@ def build_catalogue(s: CatalogueSettings) -> Manifest:
     root = s.data_root.resolve()
     files, skipped = _walk(root)
 
+    profiled: list[_Profiled] = []
+    seen: dict[str, str] = {}
+    for path in files:
+        p = _profile_file(path, root, s)
+        if p.entry.catalogue_id in seen:
+            raise RuntimeError(
+                f"catalogue ID collision: {p.entry.file_path} and {seen[p.entry.catalogue_id]}"
+            )
+        seen[p.entry.catalogue_id] = p.entry.file_path
+        profiled.append(p)
+
+    by_path = {p.entry.file_path: p for p in profiled}
+    schemas = {f: table_schema(p.profile) for f, p in by_path.items()}
+    fams = families([p.entry for p in profiled], schemas, s.group_rules)
+    groups_of: dict[str, list[str]] = defaultdict(list)
+    for fam in fams:
+        if fam.group_id in seen:
+            raise RuntimeError(f"catalogue ID collision: group {fam.group_id}")
+        seen[fam.group_id] = fam.directory
+        for f in fam.members:
+            groups_of[f].append(fam.group_id)
+
     staging = s.cards_dir.with_name(s.cards_dir.name + ".staging")
     if staging.exists():
         shutil.rmtree(staging)
-    entries: list[CatalogueEntry] = []
-    seen: dict[str, str] = {}
-    for path in files:
-        entry, card = profile_file(path, root, s)
-        if entry.catalogue_id in seen:
-            raise RuntimeError(
-                f"catalogue ID collision: {entry.file_path} and {seen[entry.catalogue_id]}"
-            )
-        seen[entry.catalogue_id] = entry.file_path
-        out = staging / entry.document_id
+    written: set[str] = set()
+
+    def write(document_id: str, card: str) -> str:
+        if document_id in written:
+            raise RuntimeError(f"card path collision: {document_id}")
+        written.add(document_id)
+        out = staging / document_id
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(card, encoding="utf-8")
-        entries.append(entry)
+        return _sha256(card.encode())
+
+    entries: list[CatalogueEntry] = []
+    for p in profiled:
+        gids = tuple(sorted(groups_of.get(p.entry.file_path, ())))
+        card_hash = write(p.entry.document_id, _file_card(p, gids, s))
+        entries.append(p.entry.model_copy(update={"card_hash": card_hash, "group_ids": gids}))
+    groups: list[CatalogueGroup] = []
+    for fam in fams:
+        members = [by_path[f] for f in fam.members]
+        document_id = f"{fam.domain}/_groups/{fam.group_id.split('/', 1)[1]}.md"
+        card_hash = write(document_id, render_group_card(fam, members, s))
+        formats = {m.entry.format for m in members}
+        groups.append(
+            CatalogueGroup(
+                group_id=fam.group_id,
+                domain=fam.domain,
+                rules=fam.rules,
+                member_ids=tuple(m.entry.catalogue_id for m in members),
+                directory=fam.directory,
+                format=formats.pop() if len(formats) == 1 else "mixed",
+                document_id=document_id,
+                card_hash=card_hash,
+                profiler_version=PROFILER_VERSION,
+            )
+        )
 
     manifest = Manifest(
-        profiler_version=PROFILER_VERSION, corpus=s.corpus, entries=entries, skipped=skipped
+        profiler_version=PROFILER_VERSION,
+        corpus=s.corpus,
+        entries=entries,
+        skipped=skipped,
+        groups=groups,
     )
     if s.cards_dir.exists():
         shutil.rmtree(s.cards_dir)

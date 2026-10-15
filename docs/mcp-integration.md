@@ -99,8 +99,8 @@ reads the pinned checkout's `rag/config/config.yaml`, applies the overlay, and
 **replaces** `corpora` outright, writing one flattened file with no `base:`
 key. This is needed because an overlay's registry merges with the base
 registry. It also sets `retrieval.expansion.provider: none`. The carried
-metadata is `title, domain, catalogue_id, file_path, format, card_kind`;
-`group_id` is added with group cards in D2. Everything else keeps the base
+metadata is `title, domain, catalogue_id, file_path, format, card_kind`.
+Group cards (D2) need no further field: see below. Everything else keeps the base
 defaults: hybrid retrieval, `qwen3-embedding:0.6b` through Ollama, and
 `BAAI/bge-reranker-v2-m3`.
 
@@ -129,7 +129,7 @@ corpora:
       documents_dir: /ABS/PATH/ds-research-agent/data/cards/kramabench
       description: KramaBench dataset cards
 chunking:
-  carry_metadata: [title, domain, catalogue_id, file_path, format, card_kind, group_id]
+  carry_metadata: [title, domain, catalogue_id, file_path, format, card_kind]
   header:
     template: "{domain} | {format} | {file_path}"
 retrieval:
@@ -146,11 +146,14 @@ D0's generated configuration should flatten the inherited configuration and
 restrict the registry to the card corpus before it is served. Do not
 expose a shared service with unrelated base corpora available.
 
-`card_kind` (`file` or `group`) and `group_id` support group cards (see
-[data-and-provenance.md](data-and-provenance.md#group-cards)). Group cards
-have no single `file_path`; the profiler writes the members' common directory
-there (a pattern group can span directories) so the header template stays
-valid.
+`card_kind` (`file` or `group`) supports group cards (see
+[data-and-provenance.md](data-and-provenance.md#group-cards)); a group
+card's `catalogue_id` is its group ID. Group cards have no single
+`file_path`; the profiler writes the members' common directory there (a
+pattern group can span directories) so the header template stays valid.
+Group membership is not carried on chunks: a passage resolves to its
+manifest record by document ID, and the manifest lists each file's group
+IDs. Cards still show them in front matter and body text.
 
 The base configuration embeds queries through the same Ollama daemon as the
 agent's model (`embedding.provider: ollama`, `qwen3-embedding:0.6b`). D0

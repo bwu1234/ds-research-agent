@@ -28,6 +28,8 @@ from pydantic_settings import (
 )
 
 ThinkLevel = Literal[False, "low", "medium", "xhigh"]
+# File-family rules for group cards (see docs/data-and-provenance.md#group-cards).
+GroupRule = Literal["directory", "schema", "directory+schema", "pattern"]
 
 
 class _Strict(BaseModel):
@@ -88,6 +90,14 @@ class CatalogueSettings(_Strict):
     max_json_bytes: PositiveInt
     # Text-like formats (txt, dat, sp3, tle, HTML text, XML fields): lines shown.
     text_preview_lines: PositiveInt
+    # CSV rows searched for the real header after a one-cell title row; 0
+    # always takes the first row as the header.
+    csv_title_scan_rows: NonNegativeInt
+    # Rules whose families become group cards; empty writes no groups.
+    group_rules: list[GroupRule]
+    # A group card lists every member up to this many, then the first and
+    # last halves of this many.
+    group_member_list_limit: PositiveInt
 
 
 class RagServiceSettings(_Strict):

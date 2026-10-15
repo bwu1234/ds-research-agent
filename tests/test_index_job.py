@@ -46,6 +46,9 @@ def cat(tmp_path: Path) -> CatalogueSettings:
         max_cell_chars=10,
         max_json_bytes=10,
         text_preview_lines=2,
+        csv_title_scan_rows=5,
+        group_rules=["schema", "pattern"],
+        group_member_list_limit=4,
     )
 
 

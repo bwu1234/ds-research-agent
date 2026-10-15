@@ -33,6 +33,9 @@ catalogue:
   max_cell_chars: 80
   max_json_bytes: 50000000
   text_preview_lines: 40
+  csv_title_scan_rows: 5
+  group_rules: [directory+schema, pattern]
+  group_member_list_limit: 40
 
 rag_service:
   checkout: /ABS/PATH/rag-toolkit-dsra
