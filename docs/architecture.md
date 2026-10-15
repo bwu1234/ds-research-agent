@@ -58,8 +58,8 @@ bypasses the discovered-ID policy, so neither is exposed to the model.
 | Tool | Does | Guard |
 |---|---|---|
 | `search_catalogue` | Searches dataset cards through `rag_search` | Corpus and filters fixed by the application |
-| `read_card` | Returns one file or group card by catalogue ID | Manifest IDs already discovered in this run, or oracle IDs in the given-files condition |
-| `run_python` | Accepts code and selected catalogue or group IDs; runs it in the run's persistent kernel; returns bounded stdout, stderr, and scratch artifacts | Validated file selection, isolated mounts, resource limits, trusted read auditing |
+| `read_card` | Returns one file or group card by catalogue ID; for a group with a member filter, also the matching members (bounded) | Manifest IDs already discovered in this run, or oracle IDs in the given-files condition |
+| `run_python` | Accepts code and selected catalogue or group IDs (a group optionally with a member filter); runs it in the run's persistent kernel; returns bounded stdout, stderr, and scratch artifacts | Validated file selection, isolated mounts, resource limits, trusted read auditing |
 | `submit_answer` | Submits the value, claimed files, and a self-contained final program, using a schema per answer type | Schema validation; the program runs in a fresh sandbox, and one that fails or prints no answer line is returned for a fix (bounded); claims checked against runner observations; verifier runs next |
 
 In the given-files condition, `search_catalogue` is disabled and the task's
@@ -70,7 +70,10 @@ In the default end-to-end condition, search results add catalogue IDs to a
 run-scoped discovered set. The agent selects IDs from that set in `run_python`;
 the application resolves paths and constructs read-only mounts. Selection can
 grow after further searches. Selecting a discovered group ID selects its
-listed members, and the mount set expands to those files only. Each execution
+listed members, or those matching a member filter (globs over member paths;
+see [data-and-provenance.md](data-and-provenance.md#group-cards)), and the
+mount set expands to those files only. The application expands filters
+against the group's member list, never against the filesystem. Each execution
 records its allowed file set.
 Neither `read_card` nor Python may enumerate the complete manifest or access
 unselected raw files. Reject path traversal, symlink escapes, and guessed IDs.
