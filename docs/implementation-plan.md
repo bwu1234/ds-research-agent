@@ -1654,9 +1654,16 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     when it is set. The app log agrees: on rc0, v0.40.4 was reported
     available every hour from 02:40 to 08:40 on 2026-10-14 with no download
     (off), and a download was attempted at 09:18 (on). The column reads 1
-    now, so auto-update is on. Turn it off in the app's settings before
-    D4's model batches; the harness's refusal to resume a batch on another
-    version remains the backstop.
+    now, so auto-update is on. **Kept on, at the user's decision
+    (2026-10-14)**, for security fixes; it had run for months without
+    trouble. Updates download in the background and install only when the
+    app restarts. The guards are the version stamp on each batch,
+    `refuse_server_versions`, the refusal to resume a batch on another
+    version, and the `compare` warning. The version is checked when a batch
+    starts or resumes, not per run, so an app restart during a batch would
+    switch versions undetected; avoid restarting Ollama while a batch runs.
+    A new version is a new baseline: rerun the smoke batch on it before
+    pooling or comparing, as in (n).
   - **Decode speed on 0.40.4 (from (n)): no regression.** A first recheck
     was abandoned after 6 steps because another local project began calling
     the same model concurrently, which invalidates timing. The rerun,
@@ -1854,8 +1861,9 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
   batches, and ignored. `num_ctx` is set in `config/local.yaml` (262144, the
   machine's VRAM-based default on 0.35.1 and 0.40.4-rc0) so it cannot follow
   free memory; `config/example.yaml` leaves it to the operator. D1 and D3 results through (k) were recorded on 0.35.1. App
-  auto-update was off overnight on rc0 and is on since the 0.40.4 install
-  (see (o)); turn it off before D4's batches.
+  auto-update is on, kept on for security fixes at the user's decision
+  (2026-10-14, see (o)); a new version is checked with the smoke batch
+  before results on it are pooled or compared.
 - Context stays strictly append-only within a run; no compaction (D3,
   2026-10-14; see D3 progress (o)). On the development passes the largest
   context is 54k tokens of 262k, each step's prefill tracks the appended
