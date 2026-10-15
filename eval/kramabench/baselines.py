@@ -532,10 +532,12 @@ async def run_batch(
     client_for: ClientFor,
     on_done: Callable[[Run, int, int], None] | None = None,
     agent_task: AgentTask | None = None,
+    before_run: Callable[[], None] | None = None,
 ) -> list[Run]:
     """Run every (task, repeat) one at a time, in task order then repeat,
     skipping pairs that already have a run row (resume). Program conditions
-    need ``agent_task``."""
+    need ``agent_task``. ``before_run`` is called before each run starts; an
+    exception from it stops the batch with no run left unfinished."""
     done = {(r.task_key, r.repeat) for r in h.ledger.runs(batch.batch_id)}
     runs = []
     total = len(batch.task_keys) * batch.repeats
@@ -544,6 +546,8 @@ async def run_batch(
         for r in range(batch.repeats):
             if (key, r) in done:
                 continue
+            if before_run:
+                before_run()
             if batch.condition in PROGRAM_CONDITIONS:
                 if agent_task is None:
                     raise ValueError(f"condition {batch.condition} needs agent_task")

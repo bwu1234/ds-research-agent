@@ -1659,10 +1659,13 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     trouble. Updates download in the background and install only when the
     app restarts. The guards are the version stamp on each batch,
     `refuse_server_versions`, the refusal to resume a batch on another
-    version, and the `compare` warning. The version is checked when a batch
-    starts or resumes, not per run, so an app restart during a batch would
-    switch versions undetected; avoid restarting Ollama while a batch runs.
-    A new version is a new baseline: rerun the smoke batch on it before
+    version, the `compare` warning, and, added here, a check before every
+    run: `run` compares `/api/version` with the batch's recorded version and
+    stops the batch (exit 4) on a mismatch or an unreachable server, with
+    no run left unfinished, naming the last finished run as possibly
+    spanning the restart (`version_guard`, `run_batch(before_run=...)`;
+    offline tests in `tests/test_baselines.py`). A new version is a new
+    baseline: rerun the smoke batch on it before
     pooling or comparing, as in (n).
   - **Decode speed on 0.40.4 (from (n)): no regression.** A first recheck
     was abandoned after 6 steps because another local project began calling
@@ -1855,7 +1858,8 @@ Sources: Data Interpreter (arXiv 2402.18679), DS-Agent (2402.17453), AIDE
   (final, since 2026-10-14; 0.40.4-rc0 from 2026-10-12; see D3 progress (n)); `model.refuse_server_versions` lists versions known to fail
   (0.40.0 to 0.40.3: 0.40.1 is listed on the assumption that it shares
   0.40.0's MLX build, not from a test). The harness stamps the version on each
-  batch, refuses to resume a batch on another version or one with no recorded
+  batch, stops a batch whose server version changes between runs, refuses
+  to resume a batch on another version or one with no recorded
   version, and `compare` warns on mixed or unknown versions. The old
   `server_version` key is still accepted in settings files and in recorded
   batches, and ignored. `num_ctx` is set in `config/local.yaml` (262144, the

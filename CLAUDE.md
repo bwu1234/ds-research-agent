@@ -25,7 +25,8 @@ and the custom loop versus `codeagent` is inconclusive. Context stays
 append-only (no compaction), and the sandbox records each container's peak
 memory. D2 is next. The harness refuses an Ollama version listed in
 `model.refuse_server_versions` (0.40.0 to 0.40.3 crash on prefix-cache reuse),
-records the version on every batch, refuses to resume a batch on a different
+records the version on every batch, stops a batch if the version changes
+between runs (auto-update stays on), refuses to resume a batch on a different
 version, and warns when `compare` pairs batches from different versions. D1 and
 D3 results through (k) were recorded on 0.35.1 and (m) on 0.40.4-rc0; Ollama
 runs 0.40.4 since 2026-10-14. `model.options.num_ctx` is set explicitly in `config/local.yaml`; the example
