@@ -5,6 +5,7 @@ import pytest
 
 from ds_research_agent.catalogue.index_job import (
     CARRY_METADATA,
+    _rag_cli_logged,
     check_checkout,
     rag_config,
 )
@@ -91,3 +92,29 @@ def test_checkout_guard(tmp_path: Path, repo: Path) -> None:
     (repo / "f.txt").write_text("b")
     with pytest.raises(RuntimeError, match="local modifications"):
         check_checkout(settings(tmp_path, repo, head))
+
+
+def fake_python(tmp_path: Path, body: str) -> RagServiceSettings:
+    """Service settings whose interpreter is a shell script standing in for rag.cli."""
+    exe = tmp_path / "python"
+    exe.write_text(f"#!/bin/sh\necho started\n{body}\n")
+    exe.chmod(0o755)
+    s = settings(tmp_path, tmp_path)
+    # 3 s, not 1: macOS may scan a new executable on its first run.
+    return s.model_copy(update={"python": exe, "index_timeout_s": 3})
+
+
+def test_logged_cli_keeps_output_when_it_times_out(tmp_path: Path) -> None:
+    log = tmp_path / "index.log"
+    with pytest.raises(RuntimeError, match=r"timed out after 3 s; see .*index\.log"):
+        _rag_cli_logged(fake_python(tmp_path, "sleep 30"), log, "index", "--corpus", "c")
+    text = log.read_text()
+    assert "rag.cli --config" in text and "index --corpus c" in text
+    assert text.rstrip().endswith("started")
+
+
+def test_logged_cli_reports_a_failing_exit(tmp_path: Path) -> None:
+    log = tmp_path / "index.log"
+    with pytest.raises(RuntimeError, match="exited 3"):
+        _rag_cli_logged(fake_python(tmp_path, "echo boom >&2; exit 3"), log, "index")
+    assert log.read_text().splitlines()[-2:] == ["started", "boom"]

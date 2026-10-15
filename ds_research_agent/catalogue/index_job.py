@@ -10,6 +10,7 @@ import datetime as dt
 import hashlib
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -125,6 +126,30 @@ def _rag_cli(svc: RagServiceSettings, *args: str) -> subprocess.CompletedProcess
     )
 
 
+def _rag_cli_logged(svc: RagServiceSettings, log: Path, *args: str) -> None:
+    """Run the rag CLI with its output appended to ``log`` as it is written,
+    so a timeout or failure leaves the evidence behind."""
+    cmd = [str(svc.python), "-m", "rag.cli", "--config", str(svc.generated_config), *args]
+    with log.open("a", encoding="utf-8") as f:
+        f.write(f"$ {' '.join(cmd)}\n")
+        f.flush()
+        try:
+            subprocess.run(
+                cmd,
+                cwd=svc.checkout,
+                check=True,
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                timeout=svc.index_timeout_s,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                f"rag.cli {args[0]} timed out after {e.timeout:.0f} s; see {log}"
+            ) from e
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"rag.cli {args[0]} exited {e.returncode}; see {log}") from e
+
+
 def _json_report(stdout: str) -> dict[str, Any]:
     # rag-toolkit's CLI logs to stdout even with --json; the report is the
     # trailing object that starts on a line of its own.
@@ -144,8 +169,18 @@ def run_index(cat: CatalogueSettings, svc: RagServiceSettings) -> Generation:
         raise RuntimeError(f"manifest is for corpus {manifest.corpus!r}, not {cat.corpus!r}")
     config_bytes = write_rag_config(cat, svc)
 
+    # Chunking needs no embedder, so the plan is known before the long step.
+    plan = _json_report(_rag_cli(svc, "index-report", "--corpus", cat.corpus, "--json").stdout)
+    print(
+        f"{plan.get('documents')} cards -> {plan.get('chunks')} chunks "
+        f"({plan.get('duplicate_chunks')} duplicate) to embed",
+        file=sys.stderr,
+    )
+    log = svc.index_dir.parent / "index.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("", encoding="utf-8")
     start = time.monotonic()
-    _rag_cli(svc, "index", "--corpus", cat.corpus, "--reset")
+    _rag_cli_logged(svc, log, "index", "--corpus", cat.corpus, "--reset")
     index_s = time.monotonic() - start
     report = _json_report(_rag_cli(svc, "index-report", "--corpus", cat.corpus, "--json").stdout)
     if report.get("documents") != len(manifest.entries):
