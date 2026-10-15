@@ -32,6 +32,7 @@ catalogue:
   max_example_values: 3
   max_cell_chars: 80
   max_json_bytes: 50000000
+  text_preview_lines: 40
 
 rag_service:
   checkout: /ABS/PATH/rag-toolkit-dsra

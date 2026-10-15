@@ -8,18 +8,26 @@ untrusted; cards are evidence for the agent, never instructions.
 
 from __future__ import annotations
 
+import ast
 import csv
+import datetime as dt
 import hashlib
 import io
 import json
 import re
 import shutil
+import sqlite3
+import struct
+import zipfile
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
+import openpyxl
 import yaml
+from defusedxml import ElementTree
 
 from ds_research_agent.catalogue.models import (
     CatalogueEntry,
@@ -31,12 +39,24 @@ from ds_research_agent.config import CatalogueSettings
 
 # Bump whenever card text or entry fields change for the same input; a new
 # version means a new catalogue generation and a full reindex.
-PROFILER_VERSION = 1
+PROFILER_VERSION = 2
 
-# Reader the sandbox is expected to use, by format. Package set decided in D3.
+# Reader the sandbox is expected to use, by format. Package set decided in D3
+# (D3 progress (b)); each was checked against every benchmark file.
 READERS = {
     "csv": "pandas.read_csv",
     "json": "json / pandas.json_normalize",
+    "xlsx": "pandas.read_excel (openpyxl)",
+    "gpkg": "geopandas.read_file (pyogrio)",
+    "npz": "numpy.load",
+    "cdf": "cdflib",
+    "tle": "sgp4 (two-line element sets)",
+    "sp3": "fixed-format text (no maintained reader)",
+    "hdr": "lxml / xml.etree (XML)",
+    "html": "pandas.read_html (lxml)",
+    "txt": "pandas.read_csv(sep=r'\\s+') or plain text",
+    "dat": "pandas.read_csv(sep=r'\\s+') or plain text",
+    "lst": "pandas.read_csv(sep=r'\\s+') or plain text",
 }
 
 # Tried in order; latin-1 decodes any byte sequence, so it is last.
@@ -78,6 +98,8 @@ class Profile:
 
     facts: tuple[tuple[str, str], ...]
     tables: tuple[TableProfile, ...]
+    # Titled verbatim excerpts (text formats), rendered as code blocks.
+    texts: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 # --- value typing -----------------------------------------------------------
@@ -156,7 +178,10 @@ def _table(
 
 
 def _decode(path: Path) -> tuple[str, str]:
-    raw = path.read_bytes()
+    return _decode_bytes(path.read_bytes())
+
+
+def _decode_bytes(raw: bytes) -> tuple[str, str]:
     for enc in ENCODINGS:
         try:
             text = raw.decode(enc)
@@ -246,7 +271,238 @@ def profile_json(path: Path, s: CatalogueSettings) -> Profile:
     return Profile(facts=tuple(facts), tables=tuple(tables))
 
 
-PROFILERS = {"csv": profile_csv, "json": profile_json}
+def _str(v: Any) -> str | None:
+    if v is None:
+        return None
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    if isinstance(v, dt.date | dt.time):  # datetime is a date
+        return v.isoformat()
+    if isinstance(v, bytes):  # e.g. geometry in a column not declared BLOB
+        return f"<{len(v)} bytes>"
+    return _scalar(v)
+
+
+def profile_xlsx(path: Path, s: CatalogueSettings) -> Profile:
+    """One table per sheet; the first non-empty row is the header. Row counts
+    are the sheet's declared dimension, so huge sheets are not read to the end."""
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except Exception as e:  # noqa: BLE001 - openpyxl raises many types for bad files
+        raise ProfileError(f"xlsx: {type(e).__name__}: {e}") from e
+    tables: list[TableProfile] = []
+    try:
+        for ws in wb.worksheets:
+            rows = ws.iter_rows(values_only=True, max_row=s.sample_rows + 50)
+            header: list[str] | None = None
+            body: list[list[str | None]] = []
+            for row in rows:
+                cells = [_str(v) for v in row]
+                if header is None:
+                    if any(c not in (None, "") for c in cells):
+                        header = [c or f"column {i + 1}" for i, c in enumerate(cells)]
+                    continue
+                if len(body) < s.sample_rows:
+                    body.append(cells)
+            if header is None:
+                continue
+            t = _table(f"Sheet `{ws.title}`", header, body, s)
+            declared = max((ws.max_row or 0) - 1, len(body))
+            tables.append(TableProfile(t.title, declared, t.sampled_rows, t.columns, t.sample))
+    finally:
+        wb.close()
+    facts = (("Sheets", ", ".join(f"`{ws.title}`" for ws in wb.worksheets)),)
+    return Profile(facts=facts, tables=tuple(tables))
+
+
+def _quote_ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def profile_gpkg(path: Path, s: CatalogueSettings) -> Profile:
+    """A GeoPackage is SQLite: one table per ``gpkg_contents`` entry, geometry
+    and other blob columns listed but not sampled. Opened read-only."""
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True)
+    except sqlite3.Error as e:
+        raise ProfileError(f"gpkg: {e}") from e
+    tables: list[TableProfile] = []
+    facts: list[tuple[str, str]] = []
+    try:
+        contents = con.execute(
+            "SELECT table_name, data_type, COALESCE(description, '') FROM gpkg_contents "
+            "ORDER BY table_name"
+        ).fetchall()
+        for name, kind, desc in contents:
+            q = _quote_ident(name)
+            info = con.execute(f"PRAGMA table_info({q})").fetchall()
+            cols = [(c[1], (c[2] or "").upper()) for c in info]
+            keep = [c for c, t in cols if t not in ("BLOB", "GEOMETRY") and "GEOM" not in t]
+            skipped = [c for c, _ in cols if c not in keep]
+            total = con.execute(f"SELECT COUNT(*) FROM {q}").fetchone()[0]
+            sel = ", ".join(_quote_ident(c) for c in keep) or "NULL"
+            rows = con.execute(f"SELECT {sel} FROM {q} LIMIT ?", (s.sample_rows,)).fetchall()
+            t = _table(f"Layer `{name}` ({kind})", keep, ([_str(v) for v in r] for r in rows), s)
+            tables.append(TableProfile(t.title, total, t.sampled_rows, t.columns, t.sample))
+            if skipped:
+                facts.append((f"`{name}` geometry/blob columns", ", ".join(skipped)))
+            if desc:
+                facts.append((f"`{name}` description", _cell(desc, s)))
+    except sqlite3.Error as e:
+        raise ProfileError(f"gpkg: {e}") from e
+    finally:
+        con.close()
+    return Profile(facts=tuple(facts), tables=tuple(tables))
+
+
+def _npy_header(f: Any) -> tuple[str, tuple[int, ...]]:
+    if f.read(6) != b"\x93NUMPY":
+        raise ProfileError("npz member is not a .npy array")
+    major = f.read(2)[0]
+    size_fmt = "<H" if major == 1 else "<I"
+    (hlen,) = struct.unpack(size_fmt, f.read(struct.calcsize(size_fmt)))
+    header = ast.literal_eval(f.read(hlen).decode("latin-1"))
+    return str(header["descr"]), tuple(header["shape"])
+
+
+def profile_npz(path: Path, s: CatalogueSettings) -> Profile:
+    """Array names, dtypes, and shapes from each member's .npy header."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            facts = []
+            for name in sorted(z.namelist()):
+                with z.open(name) as f:
+                    dtype, shape = _npy_header(f)
+                facts.append(
+                    (f"Array `{name.removesuffix('.npy')}`", f"dtype {dtype}, shape {shape}")
+                )
+    except (zipfile.BadZipFile, ValueError, SyntaxError, KeyError) as e:
+        raise ProfileError(f"npz: {e}") from e
+    return Profile(facts=tuple(facts), tables=())
+
+
+def _head_lines(path: Path, limit: int) -> tuple[list[str], int, str]:
+    """The first ``limit`` lines, the total line count, and the encoding.
+
+    Only the first ``SNIFF_BYTES`` are decoded, cut at the last complete line
+    so a multi-byte character is never split; the rest is only counted.
+    """
+    total, last = 0, b""
+    with path.open("rb") as f:
+        head = f.read(SNIFF_BYTES)
+        for chunk in (head, *iter(lambda: f.read(1 << 20), b"")):
+            total += chunk.count(b"\n")
+            last = chunk[-1:]
+    if last not in (b"", b"\n"):
+        total += 1  # a final line without a newline
+    cut = head.rfind(b"\n") + 1 if len(head) == SNIFF_BYTES and b"\n" in head else len(head)
+    text, enc = _decode_bytes(head[:cut])
+    return text.splitlines()[:limit], total, enc
+
+
+def profile_text(path: Path, s: CatalogueSettings) -> Profile:
+    lines, total, enc = _head_lines(path, s.text_preview_lines)
+    if not lines:
+        raise ProfileError("empty file")
+    shown = tuple(_clip_line(x, s) for x in lines)
+    return Profile(
+        facts=(("Encoding", enc), ("Lines", str(total))),
+        tables=(),
+        texts=((f"First {len(shown)} lines", shown),),
+    )
+
+
+def profile_xml(path: Path, s: CatalogueSettings) -> Profile:
+    """Leaf elements as ``path: text`` lines, in document order."""
+    try:
+        root = ElementTree.parse(path).getroot()
+    except Exception as e:  # noqa: BLE001 - defusedxml and expat raise several types
+        raise ProfileError(f"xml: {type(e).__name__}: {e}") from e
+    if root is None:
+        raise ProfileError("xml: no root element")
+    out: list[str] = []
+
+    def walk(el: Any, prefix: str) -> None:
+        tag = el.tag.rsplit("}", 1)[-1]
+        here = f"{prefix}/{tag}" if prefix else tag
+        kids = list(el)
+        text = " ".join((el.text or "").split())
+        if not kids and text:
+            out.append(f"{here}: {text}")
+        for k in kids:
+            if len(out) >= s.text_preview_lines:
+                return
+            walk(k, here)
+
+    walk(root, "")
+    shown = tuple(_clip_line(x, s) for x in out[: s.text_preview_lines])
+    return Profile(
+        facts=(("Root element", root.tag.rsplit("}", 1)[-1]),),
+        tables=(),
+        texts=(("XML fields", shown),),
+    )
+
+
+class _VisibleText(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.lines: list[str] = []
+        self.title = ""
+        self._skip = 0
+        self._in_title = False
+        self.tables = 0
+
+    def handle_starttag(self, tag: str, attrs: Any) -> None:
+        if tag in ("script", "style"):
+            self._skip += 1
+        elif tag == "title":
+            self._in_title = True
+        elif tag == "table":
+            self.tables += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("script", "style") and self._skip:
+            self._skip -= 1
+        elif tag == "title":
+            self._in_title = False
+
+    def handle_data(self, data: str) -> None:
+        text = " ".join(data.split())
+        if not text or self._skip:
+            return
+        if self._in_title:
+            self.title += text
+        else:
+            self.lines.append(text)
+
+
+def profile_html(path: Path, s: CatalogueSettings) -> Profile:
+    text, enc = _decode(path)
+    parser = _VisibleText()
+    parser.feed(text)
+    facts = [("Encoding", enc), ("Tables", str(parser.tables))]
+    if parser.title:
+        facts.insert(0, ("Title", _cell(parser.title, s)))
+    shown = tuple(_clip_line(x, s) for x in parser.lines[: s.text_preview_lines])
+    return Profile(facts=tuple(facts), tables=(), texts=(("Visible text", shown),))
+
+
+PROFILERS = {
+    "csv": profile_csv,
+    "json": profile_json,
+    "xlsx": profile_xlsx,
+    "gpkg": profile_gpkg,
+    "npz": profile_npz,
+    "hdr": profile_xml,
+    "html": profile_html,
+    "txt": profile_text,
+    "dat": profile_text,
+    "lst": profile_text,
+    "tle": profile_text,
+    "sp3": profile_text,
+    "text": profile_text,
+    "py": profile_text,
+}
 
 
 # --- rendering --------------------------------------------------------------
@@ -255,6 +511,13 @@ PROFILERS = {"csv": profile_csv, "json": profile_json}
 def _clip(v: str, s: CatalogueSettings) -> str:
     v = " ".join(v.split())
     return v if len(v) <= s.max_cell_chars else v[: s.max_cell_chars - 1] + "…"
+
+
+def _clip_line(v: str, s: CatalogueSettings) -> str:
+    """A text line kept as written but bounded, and unable to close a code fence."""
+    v = v.rstrip().replace("```", "'''")
+    limit = 2 * s.max_cell_chars
+    return v if len(v) <= limit else v[: limit - 1] + "…"
 
 
 def _escape(v: str) -> str:
@@ -321,6 +584,8 @@ def render_card(
     if profile is not None:
         for t in profile.tables:
             lines += _render_table(t, s)
+        for title, body in profile.texts:
+            lines += [f"## {title}", "", "```text", *body, "```", ""]
     return "\n".join(lines).rstrip("\n") + "\n"
 
 

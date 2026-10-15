@@ -86,6 +86,8 @@ class CatalogueSettings(_Strict):
     max_cell_chars: PositiveInt
     # JSON files larger than this get a minimal card instead of being parsed.
     max_json_bytes: PositiveInt
+    # Text-like formats (txt, dat, sp3, tle, HTML text, XML fields): lines shown.
+    text_preview_lines: PositiveInt
 
 
 class RagServiceSettings(_Strict):
