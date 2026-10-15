@@ -35,7 +35,8 @@ collapse grouped files into their group (`--collapse`). Agentic discovery is
 the `discovery_agent` condition (`ds_research_agent/agent/discovery.py`,
 `eval/kramabench/discovery_agent.py`): search, read cards, and choose files
 by discovered IDs with member filters (`ds_research_agent/catalogue/selection.py`),
-scored as `discovery-v1`; only its smoke run exists (D2 progress (d)).
+scored as `discovery-v1`; its registered comparison with single-shot search
+is inconclusive (D2 progress (e)).
 Group-ID selection in `run_python` (D4) is not built. rag-toolkit's pooled (unfiltered) search is
 not deterministic across runs; domain-filtered search is.
 rag-toolkit is pinned at `0f6eb38`. The harness refuses an Ollama version listed in

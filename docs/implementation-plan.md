@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); profiler v3 with group cards and group-level retrieval 2026-10-15, see D2 progress (c); agentic-discovery condition built 2026-10-15, see D2 progress (d); agentic-discovery condition built; its development run next); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); profiler v3 with group cards and group-level retrieval 2026-10-15, see D2 progress (c); agentic-discovery condition built and its registered comparison decided (inconclusive) 2026-10-15, see D2 progress (d) and (e); group-ID selection in `run_python` (D4) next); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -944,6 +944,54 @@ agentic version are reported with their time cost.
     94 s); legal-hard-1 chose the HTML file and the metropolitan-areas CSV
     (2 files) in 190 s. Replay: 0 differences. Two smoke tasks show the
     condition works, not how it scores.
+- **(e) Agentic discovery on the development split, decided: inconclusive,
+  2026-10-15.** Batch `disc-dev-1`: 53 tasks, one pass, catalogue v3m3,
+  think off, Ollama 0.40.4 (otherwise idle; no rag-toolkit job ran), clean
+  checkout `1af25f5`. 52 runs chose files and one stopped at the step limit
+  (astronomy-hard-10). `replay` reproduced all 53 runs with 0 differences,
+  from the ledger alone. Rows in `data/measurements/discovery/agent-disc-dev-1.json`;
+  pairs in `paired-agent-2026-10-15.json`; both kept local.
+  - **Registered comparison** (evaluation plan), paired against single-shot
+    rag hybrid + collapse on the same catalogue and index, mean [95%
+    interval]: complete set, agent minus `complete@10`, **−0.057 [−0.208,
+    +0.075]** (primary): inconclusive. Recall, agent minus `recall@10`:
+    −0.116 [−0.206, −0.020]. The two are not the same quantity: single-shot
+    recall@10 counts what ten cards make reachable, while the agent selects
+    (median 2 files, precision 0.79 [0.70, 0.88] over the 50 fully resolved
+    tasks). Against `@5`: complete +0.038 [−0.113, +0.189], recall −0.030
+    [−0.143, +0.086].
+  - **Agent alone**: recall 0.79 [0.71, 0.88], complete set 0.70 [0.59,
+    0.81]. By domain (recall / complete, single-shot recall@10 /
+    complete@10 in brackets): archaeology 1.00 / 1.00 (1.00 / 1.00),
+    biomedical 1.00 / 1.00 (1.00 / 1.00), environment 0.97 / 0.90 (0.89 /
+    0.70), astronomy 0.61 / 0.33 (0.59 / 0.17), legal 0.70 / 0.67 (0.96 /
+    0.80), wildfire 0.64 / 0.46 (0.92 / 0.82).
+  - **Time cost**: median 108 s per task, p90 319 s, max 427 s, 2.2 h for
+    the pass (single-shot search: about 1 s per task). Per task 6.2
+    searches, 4.2 cards read, 6.8 model requests on average.
+  - **Why the 16 incomplete tasks miss**, from their choices against gold:
+    a different file holding the same data than the one the benchmark
+    labels, 5 (legal-hard-1 and hard-30 took the national metropolitan-areas
+    CSV over the 52 state files; three wildfire tasks took `noaa_wildfires`
+    in place of the labelled `Fire_Weather_Data`, which shares its columns,
+    or the monthly statistics); a supporting file left
+    out, 4 (three need `noaa_wildfires_variabledescrip.csv`); a group
+    narrowed wrongly, 2 (wrong dates in astronomy-easy-1; `*Florida*` where
+    legal-hard-24 needs every state); a wrong file, 4 (astronomy-easy-4
+    chose the 715-file OMNI2 group instead of the sunspot file; two legal
+    tasks a similarly named CSV; one environment task beach datasheets
+    instead of a water-body year); out of turns, 1. The same-data swaps may
+    be pushed by the no-fallback rule added after the smoke runs; with one
+    pass and no run without it, its effect is not measured.
+  - **Limitations.** One pass; run-to-run variance of the agent is not
+    measured. The prompt rule above was added after looking at a smoke
+    task. Gold sets are the benchmark's labels, which name one of several
+    files that hold the same data in at least five tasks; a choice can
+    answer the question and still miss the label.
+  - **Next.** Agentic discovery is not adopted as better than single-shot.
+    Whether to carry it into D4, as the end-to-end search step, is a D5
+    ablation ("agentic versus single-shot discovery"); D4 can start from
+    single-shot collapsed search. Then group-ID selection in `run_python`.
 
 ## D3 — Sandbox and analysis with given files
 

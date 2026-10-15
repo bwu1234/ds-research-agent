@@ -151,3 +151,11 @@ def test_summary_averages_each_metric_over_the_rows_that_have_it() -> None:
     s = summarise(rows)["pooled"]
     assert s["recall"][0] == 0.5 and s["precision"][0] == 0.5
     assert s["precision_tasks"] == 1 and "recall_tasks" not in s
+
+
+def test_paired_metrics_can_have_different_names() -> None:
+    from eval.kramabench.discovery_paired import paired
+
+    a = [{"task": "t", "domain": "d", "gold": 1, "complete": 1.0}]
+    b = [{"task": "t", "domain": "d", "gold": 1, "complete@10": 0.0}]
+    assert paired(a, b, ["complete:complete@10"])["complete:complete@10"][0] == 1.0
