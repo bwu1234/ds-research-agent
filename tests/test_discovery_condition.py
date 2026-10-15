@@ -187,3 +187,25 @@ def test_replay_searcher_refuses_a_changed_search(harness: Harness) -> None:
     rs = discovery_agent.ReplaySearcher([step])
     with pytest.raises(ReplayMismatch):
         asyncio.run(rs.search("q", corpus="c", top_k=20, max_chars=200))
+
+
+def test_precision_is_left_out_where_the_gold_set_is_partly_unresolved(harness: Harness) -> None:
+    h = harness
+    t = h.tasks[h.split.dev[0]]
+    t2 = t.model_copy(update={"data_sources": (*t.data_sources, "typo-dir/")})
+    batch = new_batch(
+        h.settings, h.model, h.split, condition="discovery_agent", task_set="dev",
+        keys=(t.key,), repeats=1, batch_id="disc-unres",
+    )  # fmt: skip
+    h.ledger.add_batch(batch)
+    from ds_research_agent.catalogue import load_manifest
+
+    manifest = load_manifest(h.settings.catalogue.manifest_path)
+
+    async def task(hh: Harness, b: Any, tk: Any, r: int, c: Any) -> Any:
+        return await discovery_agent.run_discovery_task(hh, b, tk, r, c, DomainSearcher(), manifest)
+
+    asyncio.run(run_batch(h, batch, lambda _t, _r: Chooser(wrong=set()), agent_task=task))
+    (row,) = discovery_agent.rows(h.ledger, batch, {t.key: t2}, h.settings.kramabench.visible_root)
+    assert row["unresolved"] == 1 and "recall" in row
+    assert "precision" not in row and "excess" not in row

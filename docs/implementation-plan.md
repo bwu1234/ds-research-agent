@@ -931,6 +931,19 @@ agentic version are reported with their time cost.
     15 searches over 11 turns looking for population data, then the whole
     52-member state group plus two files: recall 1.0, precision 0.02, in
     207 s. The replay matched with 0 differences.
+  - **Prompt adjusted once, before the development run.** legal-hard-1's
+    low precision was mostly a scoring artifact: its `data_sources` name
+    `State MSA Identitiy Theft Data/` (a typo'd directory, deliberately
+    unresolved), so the gold set held only the HTML file while the
+    benchmark intends the state group, which is what the agent chose. Its
+    one real extra was a second source of the same counts. So: precision
+    and extra files are now left out for tasks with unresolved entries, and
+    the system prompt and `choose_files` description gained one rule
+    against adding a second source of the same data as a fallback. Smoke
+    rerun: environment-easy-1 unchanged (group with `*2013*`, exactly gold,
+    94 s); legal-hard-1 chose the HTML file and the metropolitan-areas CSV
+    (2 files) in 190 s. Replay: 0 differences. Two smoke tasks show the
+    condition works, not how it scores.
 
 ## D3 — Sandbox and analysis with given files
 

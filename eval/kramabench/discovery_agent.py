@@ -10,7 +10,9 @@ model nor the rag-toolkit server: ``ReplayClient`` takes the model steps and
 
 Scoring (profile ``discovery-v1``): against the task's resolved
 ``data_sources``, the chosen files' recall (``score``) and complete set
-(``strict``); precision and counts are in the summary. A run that chooses
+(``strict``); precision and counts are in the summary. Precision and extra
+files are left out for a task with unresolved ``data_sources`` entries: an
+unmatched entry (a typo, a directory) may name files the agent rightly chose. A run that chooses
 nothing scores 0 and stays in the denominator; a task whose sources resolve
 to no file is not scored. Cards are generated, so a run records the
 catalogue generation it searched.
@@ -290,9 +292,13 @@ def rows(
         a = ledger.answer(r.run_id)
         v = a.value if a and isinstance(a.value, dict) else {}
         steps = ledger.steps(r.run_id)
+        m = selection_metrics(v.get("files", []), gold)
+        if unresolved:
+            # Part of the gold set is unknown, so extra files may be gold.
+            del m["precision"], m["excess"]
         row |= {
             "latency_s": float(r.wall_s or 0.0),
-            **selection_metrics(v.get("files", []), gold),
+            **m,
             "chose": float(bool(a and a.answered)),
             "searches": float(v.get("searches", 0)),
             "cards_read": float(v.get("cards_read", 0)),
