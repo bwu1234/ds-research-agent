@@ -176,6 +176,22 @@ deduplicating card chunks, and report whether required file sets exceed k.
 A retrieved group card counts as retrieving its listed members; report
 file-level and group-level recall separately so groups cannot hide misses.
 
+**Agentic discovery (D2, condition `discovery_agent`).** The model gets the
+question and the domain-filtered catalogue search, with `search_catalogue`
+(results collapsed into groups), `read_card`, and `choose_files`, which ends
+the run with discovered IDs and member filters; it does not answer. Budget:
+`discovery.max_steps` (12) and `discovery.max_wall_s` (900 s) per task, with
+thinking `off`, the level frozen for the agent loops in D3. Score (`discovery-v1`): the chosen set's recall
+and complete-set rate against resolved `data_sources`, plus precision,
+extra files, searches, cards read, model requests, and wall time; a run
+that chooses nothing scores 0 and stays in the denominator. The registered
+comparison, fixed before the first development run: paired on the 53
+development tasks against single-shot rag hybrid with collapse on the same
+catalogue and index, the agent's complete-set rate against `complete@10` (primary)
+and recall against `recall@10`, with precision and time reported beside
+them. Single-shot `@10` sees ten cards and selects nothing, so the agent's
+precision has no single-shot counterpart.
+
 Gold answers, reference solutions, and benchmark sub-task instructions stay
 outside prompts, tools, indexes, and sandbox mounts. Only the given-files
 condition receives oracle `data_sources`. Discovery scoring reads those labels

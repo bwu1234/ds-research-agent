@@ -19,7 +19,7 @@ intervals include zero.
 | D0 Scaffold: config, model client, MCP retrieval adapter, dataset-card profiler | Done |
 | D1 Evaluation harness: deterministic scorer, frozen split, SQLite run ledger, replay, baselines | Done |
 | D3 Sandbox and given-files analysis: restricted container, read audit, persistent kernel, agent loop, rerun verifier, comparator | Done |
-| D2 Catalogue expansion and discovery: cards for 1,741 of 1,742 files and retrieval-only baselines done; group cards (profiler v3) and group-level retrieval done; group-ID selection and agentic discovery next | In progress |
+| D2 Catalogue expansion and discovery: cards for 1,741 of 1,742 files and retrieval-only baselines done; group cards (profiler v3) and group-level retrieval done; group cards and agentic discovery measured; D4 end to end next | In progress |
 | D4 End to end: search the catalogue, then analyse, with provenance | Planned |
 | D5 Ablations and sealed-holdout evaluation | Planned |
 
@@ -44,6 +44,13 @@ runs.
 |---|---|---|
 | P1: `given_files` − inlined files | **+22.0** (+4.9 to +39.0) | Code execution pays |
 | P2: `given_files` − `codeagent` | +4.9 (−9.8 to +19.5) | Inconclusive; +8.5 on a two-pass repeat |
+
+Discovery, retrieval only (D2, all 53 development tasks, domain filter): with
+group cards and grouped results collapsed, single-shot hybrid search finds
+every input file of a task in its top 10 for 75% of tasks. An agent that
+searches, reads cards, and chooses files completes 70% of sets, choosing a
+median of 2 files at 0.79 precision in about 2 minutes per task; the
+registered difference, −5.7 points (−20.8 to +7.5), is inconclusive.
 
 Development tasks only: the holdout stays sealed until D5. Setup, all-task
 figures, runtime limits, failure analysis, and limitations are in
@@ -98,12 +105,10 @@ Indexing is a separate job.
 
 ## Next
 
-D2 has expanded the catalogue to every benchmark file and measured
-single-shot discovery without the model. With the task's domain as a filter,
-rag-toolkit hybrid search retrieves on average 76% of a development task's input files in
-its top 10 cards and all of them for 68% of tasks. Astronomy, whose tasks
-select dozens of near-identical files, is the weak domain, so group cards and
-agentic discovery come next. D4 then runs end to end: search the
+D2 has carded every benchmark file, grouped file families, and measured
+discovery: single-shot search and an agentic searcher are not distinguishable
+on complete sets (see Results). Astronomy, whose tasks need parts of several
+large families, remains the weak domain. D4 runs end to end next: search the
 catalogue for the input files, then analyse them, with provenance. D5 runs focused ablations and the sealed-holdout
 evaluation, and the first release ends with a write-up and a synthetic
 provenance demo.

@@ -3,6 +3,8 @@
 Each pair is two ``eval.kramabench.discovery`` outputs, ``a`` and ``b``; the
 difference ``a - b`` is taken per task, then averaged with a percentile
 bootstrap of tasks within domain. Only tasks scored in both are paired.
+``--metric a_name:b_name`` pairs differently named metrics, such as the
+agent's chosen-set ``complete`` with single-shot ``complete@10``.
 
     python -m eval.kramabench.discovery_paired \
         --pair data/measurements/discovery/v3-rag-hybrid-domain.json \
@@ -34,9 +36,11 @@ def paired(
     strata = {t: rows_a[t]["domain"] for t in common}
     out: dict[str, Any] = {"tasks": len(common)}
     for m in metrics:
-        if not all(m in rows_a[t] and m in rows_b[t] for t in common):
+        ma, _, mb = m.partition(":")
+        mb = mb or ma
+        if not all(ma in rows_a[t] and mb in rows_b[t] for t in common):
             continue
-        diffs = {t: float(rows_a[t][m]) - float(rows_b[t][m]) for t in common}
+        diffs = {t: float(rows_a[t][ma]) - float(rows_b[t][mb]) for t in common}
         mean, lo, hi = bootstrap_mean(diffs, strata, resamples=RESAMPLES)
         out[m] = [round(mean, 3), round(lo, 3), round(hi, 3)]
     return out

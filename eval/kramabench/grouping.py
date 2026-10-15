@@ -178,6 +178,7 @@ def measure(
     entries: Sequence[CatalogueEntry],
     schemas: Mapping[str, Schema],
     tasks: Sequence[tuple[str, str, tuple[str, ...]]],
+    min_members: int = 2,
 ) -> dict[str, Any]:
     """``tasks`` is (task key, domain, gold files)."""
     sizes = {e.file_path: e.size for e in entries}
@@ -185,7 +186,7 @@ def measure(
     baseline: list[tuple[str, ...]] = []  # per-file cards: no groups
     out: dict[str, Any] = {}
     partitions: dict[str, list[tuple[str, ...]]] = {
-        n: partition(entries, schemas, n) for n in RULES
+        n: partition(entries, schemas, n, min_members) for n in RULES
     }
     unions = {
         name: sorted({g for n in parts for g in partitions[n]}) for name, parts in UNIONS.items()
@@ -237,8 +238,12 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m eval.kramabench.grouping")
     ap.add_argument("--config", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--min-members", type=int, help="default: catalogue.group_min_members")
     args = ap.parse_args(argv)
     settings = load_settings(args.config)
+    min_members = args.min_members or settings.catalogue.group_min_members
+    if min_members < 2:
+        ap.error("--min-members must be at least 2")
     manifest = load_manifest(settings.catalogue.manifest_path)
     root = settings.catalogue.data_root.resolve()
 
@@ -265,7 +270,8 @@ def main(argv: list[str] | None = None) -> int:
         "tasks": len(tasks),
         "limits": list(LIMITS),
         "uncertainty": "mean [2.5%, 97.5%], percentile bootstrap of tasks within domain",
-        "rules": measure(manifest.entries, schemas, tasks),
+        "min_members": min_members,
+        "rules": measure(manifest.entries, schemas, tasks, min_members),
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, indent=1) + "\n", encoding="utf-8")

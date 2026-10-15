@@ -3,7 +3,8 @@
 Current results, kept up to date as comparisons land. The dated evidence
 behind each figure (batches, commits, replay checks, decisions) is in
 [implementation-plan.md](implementation-plan.md): D1 progress for the
-baselines and D3 progress (g) to (n) for the agent comparison. When a new
+baselines, D3 progress (g) to (n) for the agent comparison, and D2 progress
+(a) to (e) for discovery. When a new
 comparison is decided there, update this page and the README headline in the
 same change.
 
@@ -98,6 +99,28 @@ benchmark repository, and three string answers cannot match under the local
 string scorer. `codeagent` failures are labelled only where the stop reason
 decides it (budget exhausted, by rule); the rest are not yet labelled.
 
+## Discovery (D2)
+
+All 53 development tasks, domain-filtered search, catalogue v3m3 (profiler
+v3 cards; group cards for families of three or more). Gold sets are the
+tasks' resolved `data_sources`. No answers are computed here. Dated evidence:
+implementation plan, D2 progress (a) to (e).
+
+| Method | Recall | Complete set | Notes |
+|---|---|---|---|
+| Single-shot rag hybrid, v2 cards, top 10 | 0.76 | 0.68 | (a) |
+| Single-shot rag hybrid + collapse, v3m3, top 10 | 0.91 | 0.75 | ten cards shown, nothing selected |
+| Agentic discovery (`discovery_agent`), v3m3 | 0.79 | 0.70 | median 2 files chosen, precision 0.79; median 108 s per task |
+
+Registered comparison, agent minus single-shot top 10 on the same catalogue:
+complete set −0.057 (−0.208 to +0.075), **inconclusive**; recall −0.116
+(−0.206 to −0.020), though the single-shot figure counts reachable cards, not
+a choice. Group cards plus collapse are what moved single-shot discovery:
+against v2, recall@10 +0.145 (+0.065 to +0.226). Astronomy stays weakest
+(agent complete set 0.33; single-shot 0.17). Rag-toolkit's pooled
+(unfiltered) search is not deterministic across runs; the domain-filtered
+search used here is.
+
 ## Limitations
 
 - Development tasks only; no holdout result exists yet.
@@ -109,9 +132,9 @@ decides it (budget exhausted, by rule); the rest are not yet labelled.
   spans two commits, documented in plan entry D3 (j).
 - A third of inlined-files runs hit the output cap, so that baseline is a
   floor for what the model could do with more tokens.
-- Given files only: the agent has not yet searched the catalogue itself. D2
-  measures retrieval-only discovery so far (implementation plan, D2 progress
-  (a) and (c)); end-to-end discovery is D4.
+- The analysis results use given files: the analysis agent has not yet
+  searched the catalogue itself. D2 measures discovery on its own (one pass
+  of the agentic searcher); end-to-end discovery plus analysis is D4.
 - These figures describe this agent with this local model. They are not
   comparable to published KramaBench scores of other systems, which use
   different models and judged scoring.

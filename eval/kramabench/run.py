@@ -42,12 +42,15 @@ from typing import Any
 import httpx
 
 from ds_research_agent.agent import DockerWorkspace
+from ds_research_agent.catalogue import load_manifest
 from ds_research_agent.config import ModelSettings, Settings, load_settings
 from ds_research_agent.ledger import Batch, Ledger, canonical, utc_now
 from ds_research_agent.models.ollama_client import OllamaModelClient
+from ds_research_agent.retrieval.mcp_adapter import McpRetrieval
 from ds_research_agent.sandbox import InputMount, SandboxRunner, SandboxUnavailable
-from eval.kramabench import agent_runs, codeagent_runs, failures, report
+from eval.kramabench import agent_runs, codeagent_runs, discovery_agent, failures, report
 from eval.kramabench.baselines import (
+    AGENT_CONDITIONS,
     CONDITIONS,
     PROGRAM_CONDITIONS,
     SYSTEM_PROMPTS,
@@ -63,7 +66,12 @@ from eval.kramabench.split import Split, SplitError, frozen_split
 from eval.kramabench.tasks import Task
 
 REPO = Path(__file__).resolve().parents[2]
-ALL_CONDITIONS = (*CONDITIONS, agent_runs.CONDITION, codeagent_runs.CONDITION)
+ALL_CONDITIONS = (
+    *CONDITIONS,
+    agent_runs.CONDITION,
+    codeagent_runs.CONDITION,
+    discovery_agent.CONDITION,
+)
 # Program conditions: the D3 agent and the minimal comparator.
 AGENT_TASKS = {
     agent_runs.CONDITION: (agent_runs.run_agent_task, agent_runs.prefix_sha256),
@@ -162,15 +170,28 @@ def new_batch(
         model_settings=model.model_dump(mode="json"),
         ollama_version=replay_of.ollama_version if replay_of else ollama_version(model.host),
         answer_type_visible=settings.eval.answer_type_visible,
-        scoring_profile=PROFILE,
+        scoring_profile=profile_for(condition),
         system_prompt_sha256=(
-            AGENT_TASKS[condition][1]()
+            discovery_agent.prefix_sha256()
+            if condition == discovery_agent.CONDITION
+            else AGENT_TASKS[condition][1]()
             if condition in PROGRAM_CONDITIONS
             else sha256_text(SYSTEM_PROMPTS[condition])  # type: ignore[index]
         ),
         replay_of=replay_of.batch_id if replay_of else None,
         note=note,
     )
+
+
+def profile_for(condition: str) -> str:
+    return discovery_agent.PROFILE if condition == discovery_agent.CONDITION else PROFILE
+
+
+def batch_sections(condition: str) -> tuple[str, ...]:
+    """Settings sections that can change a batch's results."""
+    if condition == discovery_agent.CONDITION:
+        return ("eval", "agent", "discovery", "catalogue", "rag_service")
+    return ("eval", "agent", "sandbox") if condition in PROGRAM_CONDITIONS else ("eval",)
 
 
 def comparable_model_settings(settings: dict[str, Any]) -> dict[str, Any]:
@@ -205,8 +226,7 @@ def resume_problems(old: Batch, new: Batch) -> list[str]:
         out.append("Ollama version (not recorded on the batch; start a new batch)")
     elif old.ollama_version != new.ollama_version:
         out.append(f"Ollama version ({old.ollama_version} -> {new.ollama_version})")
-    sections = ("eval", "agent", "sandbox") if new.condition in PROGRAM_CONDITIONS else ("eval",)
-    for sec in sections:
+    for sec in batch_sections(new.condition):
         if canonical(old.config.get(sec)) != canonical(new.config.get(sec)):
             out.append(f"{sec} settings")
     return out
@@ -228,6 +248,30 @@ def docker_agent_task(settings: Settings, condition: str) -> AgentTask:
     return task
 
 
+def discovery_manifest(settings: Settings) -> Any:
+    manifest = load_manifest(settings.catalogue.manifest_path)
+    if manifest.corpus != settings.catalogue.corpus:
+        raise SystemExit(
+            f"error: manifest is for corpus {manifest.corpus!r}, not {settings.catalogue.corpus!r}"
+        )
+    return manifest
+
+
+async def _run_discovery_batch(
+    h: Harness, batch: Batch, client: Any, guard: Callable[[], None]
+) -> None:
+    """One MCP server for the whole batch; each run records its searches."""
+    manifest = discovery_manifest(h.settings)
+    log = h.settings.eval.ledger_path.parent / f"{batch.batch_id}.server.log"
+    with log.open("a", encoding="utf-8") as errlog:
+        async with McpRetrieval(h.settings.mcp, errlog=errlog) as r:
+
+            async def task(h: Harness, b: Batch, t: Task, rep: int, c: Any) -> Any:
+                return await discovery_agent.run_discovery_task(h, b, t, rep, c, r, manifest)
+
+            await run_batch(h, batch, lambda _t, _r: client, _progress, task, guard)
+
+
 def _progress(run: Any, done: int, total: int) -> None:
     print(f"[{done}/{total}] {run.task_key} r{run.repeat}", file=sys.stderr, flush=True)
 
@@ -235,7 +279,7 @@ def _progress(run: Any, done: int, total: int) -> None:
 def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
     split, tasks = frozen_split(settings)
     ev = settings.eval
-    agentic = args.condition in PROGRAM_CONDITIONS
+    agentic = args.condition in AGENT_CONDITIONS
     if not agentic and ev.task_timeout_s > settings.model.request_timeout_s:
         raise SystemExit(
             f"error: eval.task_timeout_s ({ev.task_timeout_s}) exceeds "
@@ -290,10 +334,13 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
     print(f"batch {batch.batch_id}: {len(keys)} tasks x {args.repeats}", file=sys.stderr)
     h = Harness(settings, model, ledger, split, tasks, repo_revision=_git("rev-parse", "HEAD"))
     client = OllamaModelClient(model)
-    agent_task = docker_agent_task(settings, args.condition) if agentic else None
     guard = version_guard(model.host, batch.ollama_version)
     try:
-        asyncio.run(run_batch(h, batch, lambda _t, _r: client, _progress, agent_task, guard))
+        if args.condition == discovery_agent.CONDITION:
+            asyncio.run(_run_discovery_batch(h, batch, client, guard))
+        else:
+            agent_task = docker_agent_task(settings, args.condition) if agentic else None
+            asyncio.run(run_batch(h, batch, lambda _t, _r: client, _progress, agent_task, guard))
     except ServerVersionChanged as e:
         msg = (
             f"error: {e}. The batch stopped before its next run and cannot be "
@@ -325,7 +372,8 @@ def cmd_replay(args: argparse.Namespace, settings: Settings) -> int:
     if canonical(orig.config.get("eval")) != canonical(settings.eval.model_dump(mode="json")):
         print("warning: eval settings differ from the recorded batch", file=sys.stderr)
     orig_runs = {(r.task_key, r.repeat): r for r in ledger.runs(orig.batch_id)}
-    steps = {k: ledger.steps(r.run_id) for k, r in orig_runs.items()}
+    all_steps = {k: ledger.steps(r.run_id) for k, r in orig_runs.items()}
+    steps = {k: [s for s in v if s.kind == "model"] for k, v in all_steps.items()}
     # Replay cannot reach a wall-clock limit; these runs replay theirs from the recording.
     at_deadline = {k for k, r in orig_runs.items() if r.stop_reason == "max_wall"}
     replay = new_batch(
@@ -347,7 +395,14 @@ def cmd_replay(args: argparse.Namespace, settings: Settings) -> int:
         return ReplayClient(model, steps.get((t.key, r), []), (t.key, r) in at_deadline)
 
     agent_task: AgentTask | None = None
-    if orig.condition in PROGRAM_CONDITIONS:
+    if orig.condition == discovery_agent.CONDITION:
+        manifest = discovery_manifest(settings)
+
+        async def agent_task(h: Harness, b: Batch, t: Task, r: int, client: Any) -> Any:
+            searcher = discovery_agent.ReplaySearcher(all_steps.get((t.key, r), []))
+            return await discovery_agent.run_discovery_task(h, b, t, r, client, searcher, manifest)
+
+    elif orig.condition in PROGRAM_CONDITIONS:
 
         async def agent_task(h: Harness, b: Batch, t: Task, r: int, client: Any) -> Any:
             o = orig_runs[(t.key, r)]
@@ -366,7 +421,8 @@ def cmd_replay(args: argparse.Namespace, settings: Settings) -> int:
             diffs.append(f"{r.task_key}: not in original")
             continue
         oa, ra = ledger.answer(o.run_id), ledger.answer(r.run_id)
-        os_, rs = ledger.score(o.run_id, PROFILE), ledger.score(r.run_id, PROFILE)
+        prof = profile_for(orig.condition)
+        os_, rs = ledger.score(o.run_id, prof), ledger.score(r.run_id, prof)
         if (oa and oa.model_dump(exclude={"run_id"})) != (ra and ra.model_dump(exclude={"run_id"})):
             diffs.append(f"{r.task_key}: answer differs")
         if (os_ and (os_.score, os_.strict, os_.verified_success)) != (
@@ -387,13 +443,29 @@ def cmd_score(args: argparse.Namespace, settings: Settings) -> int:
     ledger = Ledger(settings.eval.ledger_path)
     for bid in args.batch:
         runs = ledger.runs(bid)
+        cond = ledger.batch(bid).condition
         for r in runs:
-            score_run(ledger, r.run_id, tasks[r.task_key], r.condition)
-        print(f"rescored {len(runs)} runs in {bid} with {PROFILE}")
+            if cond == discovery_agent.CONDITION:
+                root = settings.kramabench.visible_root
+                discovery_agent.score_discovery(ledger, r.run_id, tasks[r.task_key], root)
+            else:
+                score_run(ledger, r.run_id, tasks[r.task_key], r.condition)
+        print(f"rescored {len(runs)} runs in {bid} with {profile_for(cond)}")
     return 0
 
 
-def _print_report(ledger: Ledger, batch: Batch, tasks: dict[str, Task], s: Settings) -> None:
+def _print_report(
+    ledger: Ledger, batch: Batch, tasks: dict[str, Task], s: Settings, out_path: Path | None = None
+) -> None:
+    if batch.condition == discovery_agent.CONDITION:
+        # Discovery-format output, so eval.kramabench.discovery_paired can pair it
+        # with single-shot results; rows hold gold-set sizes, not answers.
+        out = discovery_agent.summary(ledger, batch, tasks, s.kramabench.visible_root)
+        if out_path is not None:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(json.dumps(out, indent=1) + "\n", encoding="utf-8")
+        print(json.dumps(out["summary"], indent=2))
+        return
     out = report.summarise(ledger, batch, tasks, s.eval.bootstrap_resamples, s.eval.bootstrap_seed)
     print(json.dumps(out, indent=2))
 
@@ -401,8 +473,10 @@ def _print_report(ledger: Ledger, batch: Batch, tasks: dict[str, Task], s: Setti
 def cmd_report(args: argparse.Namespace, settings: Settings) -> int:
     _, tasks = frozen_split(settings)
     ledger = Ledger(settings.eval.ledger_path)
+    if args.out is not None and len(args.batch) != 1:
+        raise SystemExit("error: --out takes one --batch")
     for bid in args.batch:
-        _print_report(ledger, ledger.batch(bid), tasks, settings)
+        _print_report(ledger, ledger.batch(bid), tasks, settings, args.out)
     return 0
 
 
@@ -410,6 +484,11 @@ def cmd_compare(args: argparse.Namespace, settings: Settings) -> int:
     split, tasks = frozen_split(settings)
     ledger = Ledger(settings.eval.ledger_path)
     base = ledger.batch(args.batch[0])
+    if any(ledger.batch(b).condition == discovery_agent.CONDITION for b in args.batch):
+        raise SystemExit(
+            "error: compare pairs answer scores; for discovery_agent batches, write "
+            "`report --out` files and pair them with eval.kramabench.discovery_paired"
+        )
     ev = settings.eval
     sample = set(split.sample)
     keys = {
@@ -548,6 +627,8 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("replay", "score", "report", "compare", "choose-think"):
         p = sub.add_parser(name)
         p.add_argument("--batch", action="append", required=True)
+        if name == "report":
+            p.add_argument("--out", type=Path, help="discovery_agent: write the rows here")
         if name == "compare":
             p.add_argument(
                 "--subset",

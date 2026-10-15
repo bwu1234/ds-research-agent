@@ -31,9 +31,13 @@ corpus, and index, and retrieval-only discovery scoring
 group cards for file families (`ds_research_agent/catalogue/grouping.py`;
 rule from an oracle measurement, `eval/kramabench/grouping.py`, D2 progress
 (b) and (c)); discovery scoring counts group cards as their members and can
-collapse grouped files into their group (`--collapse`). Member filters on
-group IDs, group-ID selection in `read_card`/`run_python`, and agentic
-discovery are not built yet. rag-toolkit's pooled (unfiltered) search is
+collapse grouped files into their group (`--collapse`). Agentic discovery is
+the `discovery_agent` condition (`ds_research_agent/agent/discovery.py`,
+`eval/kramabench/discovery_agent.py`): search, read cards, and choose files
+by discovered IDs with member filters (`ds_research_agent/catalogue/selection.py`),
+scored as `discovery-v1`; its registered comparison with single-shot search
+is inconclusive (D2 progress (e)).
+Group-ID selection in `run_python` (D4) is not built. rag-toolkit's pooled (unfiltered) search is
 not deterministic across runs; domain-filtered search is.
 rag-toolkit is pinned at `0f6eb38`. The harness refuses an Ollama version listed in
 `model.refuse_server_versions` (0.40.0 to 0.40.3 crash on prefix-cache reuse),
@@ -87,6 +91,9 @@ uv run python -m ds_research_agent.catalogue --config config/local.kramabench-v3
 uv run python -m eval.kramabench.discovery --config config/local.kramabench-v3.yaml --ranker rag --mode hybrid --scope domain --out data/measurements/discovery/v3-rag-hybrid-domain.json   # or --ranker bm25; --scope pooled
 uv run python -m eval.kramabench.grouping --config config/local.kramabench-v3.yaml --out data/measurements/discovery/grouping-v3.json   # group-rule oracle, ~1 min, no index
 uv run python -m eval.kramabench.discovery_paired --pair <a.json> <b.json> --out data/measurements/discovery/paired-<date>.json   # per-task a-b, bootstrap within domain
+# D2 agentic discovery (local model + rag-toolkit server; catalogue v3m3, groups of 3+)
+uv run python -m eval.kramabench.run --config config/local.kramabench-v3m3.yaml run --condition discovery_agent --tasks smoke --think off
+uv run python -m eval.kramabench.run --config config/local.kramabench-v3m3.yaml report --batch <id> --out data/measurements/discovery/agent-<id>.json   # rows for discovery_paired
 # KramaBench at the pinned commit, split into agent-visible and evaluator stores
 uv run python -m eval.kramabench.fetch --config config/local.yaml fetch   # or verify
 uv run python scripts/measure_tool_calls.py --config config/local.yaml --out data/measurements/tool_calls.json

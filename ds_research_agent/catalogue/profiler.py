@@ -860,7 +860,7 @@ def build_catalogue(s: CatalogueSettings) -> Manifest:
 
     by_path = {p.entry.file_path: p for p in profiled}
     schemas = {f: table_schema(p.profile) for f, p in by_path.items()}
-    fams = families([p.entry for p in profiled], schemas, s.group_rules)
+    fams = families([p.entry for p in profiled], schemas, s.group_rules, s.group_min_members)
     groups_of: dict[str, list[str]] = defaultdict(list)
     for fam in fams:
         if fam.group_id in seen:

@@ -139,3 +139,23 @@ def test_collapse_map_prefers_the_largest_group() -> None:
         groups=[g("small", ("x", "y")), g("big", ("x", "y", "z"))],
     )
     assert collapse_map(m) == {"x.md": "big.md", "y.md": "big.md", "z.md": "big.md"}
+
+
+def test_summary_averages_each_metric_over_the_rows_that_have_it() -> None:
+    rows = [
+        {"task": "a", "domain": "d", "gold": 1, "unresolved": 0, "latency_s": 1.0,
+         "recall": 1.0, "precision": 0.5},
+        {"task": "b", "domain": "d", "gold": 1, "unresolved": 1, "latency_s": 1.0,
+         "recall": 0.0},
+    ]  # fmt: skip
+    s = summarise(rows)["pooled"]
+    assert s["recall"][0] == 0.5 and s["precision"][0] == 0.5
+    assert s["precision_tasks"] == 1 and "recall_tasks" not in s
+
+
+def test_paired_metrics_can_have_different_names() -> None:
+    from eval.kramabench.discovery_paired import paired
+
+    a = [{"task": "t", "domain": "d", "gold": 1, "complete": 1.0}]
+    b = [{"task": "t", "domain": "d", "gold": 1, "complete@10": 0.0}]
+    assert paired(a, b, ["complete:complete@10"])["complete:complete@10"][0] == 1.0

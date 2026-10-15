@@ -34,6 +34,7 @@ def cat(tmp_path: Path) -> CatalogueSettings:
         text_preview_lines=6,
         csv_title_scan_rows=5,
         group_rules=["schema", "pattern"],
+        group_min_members=2,
         group_member_list_limit=4,
     )
 

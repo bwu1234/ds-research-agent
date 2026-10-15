@@ -299,14 +299,20 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     scored = [r for r in rows if r["gold"]]
     strata = {r["task"]: r["domain"] for r in scored}
     meta = {"task", "domain", "gold", "unresolved", "latency_s", "ranked"}
-    metrics = [m for m in (scored[0] if scored else {}) if m not in meta]
+    # Rows may leave a metric out (agentic precision where the gold set is
+    # partly unresolved); each metric is averaged over the rows that have it.
+    metrics = list(dict.fromkeys(m for r in scored for m in r if m not in meta))
 
     def block(subset: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         out: dict[str, Any] = {"tasks": len(subset)}
         for m in metrics:
-            vals = {r["task"]: float(r[m]) for r in subset}
+            vals = {r["task"]: float(r[m]) for r in subset if m in r}
+            if not vals:
+                continue
             mean, lo, hi = bootstrap_mean(vals, strata)
             out[m] = [round(mean, 3), round(lo, 3), round(hi, 3)]
+            if len(vals) < len(subset):
+                out[f"{m}_tasks"] = len(vals)
         return out
 
     lat = sorted(r["latency_s"] for r in scored)

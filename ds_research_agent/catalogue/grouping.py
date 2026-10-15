@@ -67,16 +67,20 @@ def mask(name: str) -> str:
 
 
 def partition(
-    entries: Iterable[CatalogueEntry], schemas: Mapping[str, Schema], rule: GroupRule
+    entries: Iterable[CatalogueEntry],
+    schemas: Mapping[str, Schema],
+    rule: GroupRule,
+    min_members: int = 2,
 ) -> list[tuple[str, ...]]:
-    """One rule's families: sorted member paths, two or more, in a stable order."""
+    """One rule's families: sorted member paths, at least ``min_members``, in a
+    stable order."""
     key_of = RULES[rule]
     by: dict[Key, list[str]] = defaultdict(list)
     for e in entries:
         key = key_of(e, schemas[e.file_path])
         if key is not None:
             by[(e.domain, *key)].append(e.file_path)
-    return sorted(tuple(sorted(fs)) for fs in by.values() if len(fs) > 1)
+    return sorted(tuple(sorted(fs)) for fs in by.values() if len(fs) >= min_members)
 
 
 @dataclass(frozen=True)
@@ -96,13 +100,16 @@ class Family:
 
 
 def families(
-    entries: Sequence[CatalogueEntry], schemas: Mapping[str, Schema], rules: Sequence[GroupRule]
+    entries: Sequence[CatalogueEntry],
+    schemas: Mapping[str, Schema],
+    rules: Sequence[GroupRule],
+    min_members: int = 2,
 ) -> list[Family]:
     """Every configured rule's families, identical member sets merged."""
     domain = {e.file_path: e.domain for e in entries}
     by_members: dict[tuple[str, ...], set[str]] = defaultdict(set)
     for rule in rules:
-        for members in partition(entries, schemas, rule):
+        for members in partition(entries, schemas, rule, min_members):
             by_members[members].add(rule)
     return [
         Family(domain=domain[m[0]], members=m, rules=tuple(sorted(r)))
