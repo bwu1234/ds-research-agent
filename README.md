@@ -1,41 +1,75 @@
 # DS Research Agent
 
-A planned data research agent. Given a question and a collection of messy data
-files, it finds the relevant files, analyses them by running Python in a
-sandbox, and returns an answer with provenance: the files it read (with
-hashes), the program that computed each value, and a rerun showing the value
-reproduces. It uses [rag-toolkit](https://github.com/bwu1234/rag-toolkit) as
-an MCP search service over dataset cards, and a local `qwen3.8:27b-mlx` model
-through Ollama.
+A data research agent that answers questions over messy data files by running
+Python in a sandbox, with a local model (`qwen3.8:27b-mlx` through Ollama).
+Each answer records the files the sandbox observed it reading, the program
+that computed the value, and whether a fresh rerun reproduced it.
 
-**Status: D0 and D1 done; D3 in progress (sandbox, packages, and kernel done).** A Python scaffold with configuration, a model
-client, an MCP retrieval adapter, a dataset-card profiler with a synthetic
-fixture index, a tool-call repair policy, a pinned KramaBench fetch script,
-a read-audit spike, and a D1 evaluation harness (local deterministic scorer,
-frozen split, run ledger, no-tools and inlined-files baselines), and a
-sandbox runner and persistent kernel session (restricted container with a
-trusted read audit) exist, with a given-files agent loop in the evaluation
-harness that has been run with the model on two smoke tasks only.
+**Finding so far:** on KramaBench development tasks, letting the model run
+code in a sandbox beats pasting the files into the prompt by **+22 points of
+strict accuracy**. Whether this project's custom agent loop beats a general
+code agent (smolagents `CodeAgent` on the same sandbox) is **not yet
+settled**: the custom loop leads in every pass (+5 to +10 points), but the
+intervals include zero.
+
+## Status
+
+| Milestone | State |
+|---|---|
+| D0 Scaffold: config, model client, MCP retrieval adapter, dataset-card profiler | Done |
+| D1 Evaluation harness: deterministic scorer, frozen split, SQLite run ledger, replay, baselines | Done |
+| D3 Sandbox and given-files analysis: restricted container, read audit, persistent kernel, agent loop, rerun verifier, comparator | In progress; paired comparison run and decided |
+| D2 Catalogue expansion and discovery | Planned |
+| D4 End to end: search the catalogue, then analyse, with provenance | Planned |
+| D5 Ablations and sealed-holdout evaluation | Planned |
+
+Today the agent works on **given files**: the task's input files are mounted
+read-only in the sandbox. Finding the files by searching a catalogue
+([rag-toolkit](https://github.com/bwu1234/rag-toolkit) over MCP) is built at
+the adapter level but not yet part of the agent's evaluated runs.
+
+## Results
+
+KramaBench development split, 41 tasks not used for tuning, local model,
+local deterministic scorer. Comparison criteria were registered before the
+runs.
+
+| Condition | What the model gets | Strict accuracy |
+|---|---|---|
+| Inlined files | File text pasted into the prompt | 36.6% |
+| `codeagent` | smolagents `CodeAgent` in the sandbox | 53.7% |
+| `given_files` | This project's agent loop in the sandbox | **58.5%** |
+
+| Comparison | Difference (95% interval) | Decision |
+|---|---|---|
+| P1: `given_files` − inlined files | **+22.0** (+4.9 to +39.0) | Code execution pays |
+| P2: `given_files` − `codeagent` | +4.9 (−9.8 to +19.5) | Inconclusive; +8.5 on a two-pass repeat |
+
+Development tasks only: the holdout stays sealed until D5. Setup, all-task
+figures, runtime limits, failure analysis, and limitations are in
+[docs/results.md](docs/results.md).
 
 ## Example task
 
 > Report the average number of reported identity thefts for all metropolitan
 > areas larger than one million in population in 2023.
 
-(Abridged from KramaBench's legal domain.) The output should name the files
-used, include the program that computed the value, and record whether a rerun
-reproduced it.
+(Abridged from KramaBench's legal domain.) The agent inspects the files,
+writes and runs analysis code in the sandbox, and submits an answer with the
+program that produced it. A verifier reruns that program in a fresh sandbox
+and checks the reads the runner observed. Answer correctness, observed file
+access, and reproduction are scored separately: a reproducible result can
+still be wrong.
 
 ## Evaluation
 
 The main benchmark is [KramaBench](https://github.com/mitdbg/KramaBench): 104
-tasks and 631 sub-tasks over 1,742 files in 6 domains (at the pinned commit). It is scored under
-three conditions: no tools, given files, and end to end. See the
+tasks and 631 sub-tasks over 1,742 files in 6 domains (at the pinned commit),
+scored under three conditions: no tools, given files, and end to end. Default
+scoring is a documented local deterministic variant; upstream judged scoring
+is opt-in. Every run is recorded in a SQLite ledger and replays from recorded
+model responses with zero differences. See the
 [evaluation plan](docs/evaluation-plan.md).
-
-Default scoring uses a documented local deterministic variant; upstream
-judged scoring is opt-in. Answer correctness, observed data-file access, and
-reproduction are measured separately. A reproducible result can still be wrong.
 
 ## Repository boundary
 
@@ -49,29 +83,25 @@ Indexing is a separate job.
 
 ## Start here
 
-1. [Implementation roadmap](docs/implementation-plan.md): milestones, model and
-   compute, acceptance checks.
-2. [Architecture](docs/architecture.md): components, agent tools, sandbox
+1. [Results](docs/results.md): current figures, comparisons, limitations.
+2. [Implementation roadmap](docs/implementation-plan.md): milestones, dated
+   evidence, decisions.
+3. [Architecture](docs/architecture.md): components, agent tools, sandbox
    requirements.
-3. [Evaluation plan](docs/evaluation-plan.md): benchmarks, conditions,
+4. [Evaluation plan](docs/evaluation-plan.md): benchmarks, conditions,
    metrics, splits.
-4. [Data, catalogue, and provenance](docs/data-and-provenance.md): dataset
+5. [Data, catalogue, and provenance](docs/data-and-provenance.md): dataset
    cards, run records, provenance contract.
-5. [MCP integration](docs/mcp-integration.md): current service contract and
+6. [MCP integration](docs/mcp-integration.md): current service contract and
    configuration recipe.
-6. [Changes needed in rag-toolkit](docs/rag-toolkit-changes.md).
+7. [Changes needed in rag-toolkit](docs/rag-toolkit-changes.md).
 
-## First implementation task
+## Next
 
-D0 (scaffold, pinned rag-toolkit and MCP client, KramaBench fetch, filtered
-search on a synthetic card collection, model tool-call round trip, read-audit
-spike) is done. Next, establish D1's scoring and development
-sample and build D3's given-files workflow: sandbox, structured answer, ledger,
-observed file reads, and a fresh rerun. Expand the benchmark catalogue in D2.
+D4 runs end to end: search the catalogue for the input files, then analyse
+them, with provenance. D5 runs focused ablations and the sealed-holdout
+evaluation, and the first release ends with a write-up and a synthetic
+provenance demo.
 
-The first release ends with development ablations, a frozen holdout evaluation,
-and a write-up with a synthetic provenance demo. Calibration and additional
-benchmarks are optional extensions.
-
-See [CLAUDE.md](CLAUDE.md) for contributor guidance and [AGENTS.md](AGENTS.md)
-for the Codex entry point.
+See [CLAUDE.md](CLAUDE.md) for contributor guidance and commands, and
+[AGENTS.md](AGENTS.md) for the Codex entry point.

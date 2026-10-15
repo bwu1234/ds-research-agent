@@ -134,13 +134,18 @@ scores separately from verified success and record limitations.
 
 ## Documentation map
 
-- `README.md`: scope and entry points.
-- `docs/implementation-plan.md`: milestones, model and compute, decisions.
+- `README.md`: scope, status, headline result, and entry points.
+- `docs/results.md`: current results and limitations, summarised from the
+  plan's dated entries.
+- `docs/implementation-plan.md`: milestones, model and compute, decisions,
+  dated evidence.
 - `docs/architecture.md`: components, tools, sandbox requirements, layout.
 - `docs/evaluation-plan.md`: benchmarks, conditions, metrics, splits.
 - `docs/data-and-provenance.md`: cards, run records, provenance contract.
 - `docs/mcp-integration.md`: current service contract and integration recipe.
 - `docs/rag-toolkit-changes.md`: upstream work and ownership.
 
-Update the relevant plan when a contract or design changes. Keep shared
+Update the relevant plan when a contract or design changes. When a comparison
+is decided in the plan, update `docs/results.md` and the README headline in
+the same change. Keep shared
 guidance here; `AGENTS.md` should point here rather than duplicate it.
