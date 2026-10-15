@@ -498,6 +498,9 @@ async def run_task(
 
 # Conditions whose runs submit a program; their verified success is a bool.
 PROGRAM_CONDITIONS = frozenset({"given_files", "codeagent"})
+# Conditions run by an ``AgentTask``: the program conditions and agentic
+# discovery (eval.kramabench.discovery_agent), which chooses files instead.
+AGENT_CONDITIONS = PROGRAM_CONDITIONS | {"discovery_agent"}
 
 
 def score_run(ledger: Ledger, run_id: str, task: Task, condition: str) -> Score:
@@ -548,7 +551,7 @@ async def run_batch(
                 continue
             if before_run:
                 before_run()
-            if batch.condition in PROGRAM_CONDITIONS:
+            if batch.condition in AGENT_CONDITIONS:
                 if agent_task is None:
                     raise ValueError(f"condition {batch.condition} needs agent_task")
                 run = await agent_task(h, batch, task, r, client_for(task, r))

@@ -1,6 +1,7 @@
 from ds_research_agent.config.settings import (
     AgentSettings,
     CatalogueSettings,
+    DiscoverySettings,
     EvalSettings,
     KramaBenchSettings,
     McpSettings,
@@ -14,6 +15,7 @@ from ds_research_agent.config.settings import (
 __all__ = [
     "AgentSettings",
     "CatalogueSettings",
+    "DiscoverySettings",
     "EvalSettings",
     "KramaBenchSettings",
     "McpSettings",

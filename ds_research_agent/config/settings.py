@@ -95,6 +95,8 @@ class CatalogueSettings(_Strict):
     csv_title_scan_rows: NonNegativeInt
     # Rules whose families become group cards; empty writes no groups.
     group_rules: list[GroupRule]
+    # Smallest family that gets a group card.
+    group_min_members: int = Field(ge=2)
     # A group card lists every member up to this many, then the first and
     # last halves of this many.
     group_member_list_limit: PositiveInt
@@ -142,6 +144,27 @@ class AgentSettings(_Strict):
     submit_checks: NonNegativeInt
     # Identical resends after a model-runner crash, per request (not repairs).
     server_retries: NonNegativeInt
+
+
+class DiscoverySettings(_Strict):
+    """The agentic-discovery condition (D2): search, read cards, choose files.
+
+    Repairs, output tokens, and server retries follow ``agent``."""
+
+    max_steps: PositiveInt
+    max_wall_s: PositiveFloat
+    # Passages per search_catalogue call (rag_search top_k), before collapse.
+    search_passages: PositiveInt
+    # Characters of each result's passage shown in search results.
+    snippet_chars: PositiveInt
+    # Characters of a card read_card returns.
+    max_card_chars: PositiveInt
+    # Members listed when read_card is given a member filter.
+    max_listed_members: PositiveInt
+    # Show a grouped file's card as its largest group (D2 progress (c)).
+    collapse_groups: bool
+    # From this many steps left, the step's last message asks to choose now.
+    budget_warning_steps: NonNegativeInt
 
 
 class SandboxSettings(_Strict):
@@ -227,6 +250,7 @@ class Settings(BaseSettings):
     catalogue: CatalogueSettings
     rag_service: RagServiceSettings
     agent: AgentSettings
+    discovery: DiscoverySettings
     sandbox: SandboxSettings
     kramabench: KramaBenchSettings
     eval: EvalSettings

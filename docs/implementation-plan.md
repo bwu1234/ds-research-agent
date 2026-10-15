@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); profiler v3 with group cards and group-level retrieval 2026-10-15, see D2 progress (c); group-ID selection and agentic discovery next); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); profiler v3 with group cards and group-level retrieval 2026-10-15, see D2 progress (c); agentic-discovery condition built 2026-10-15, see D2 progress (d); agentic-discovery condition built; its development run next); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -892,6 +892,45 @@ agentic version are reported with their time cost.
     whether two-member groups earn their slots (wildfire). Then `read_card`
     and `run_python` accept group IDs with member filters, then agentic
     discovery.
+  - **Decided after (c), 2026-10-15:** collapse is the `search_catalogue`
+    presentation; agentic discovery comes before group-ID selection in
+    `run_python` (D4), since search is what produces the IDs; and two-member
+    groups were measured before being kept, in (d).
+- **(d) Minimum group size, and the agentic-discovery condition, 2026-10-15.**
+  - **Groups of three or more** (`catalogue.group_min_members: 3`, catalogue
+    `kramabench-cards-v3m3`, the same v3 cards otherwise): 12 groups, the
+    nine pairs dropped. Oracle: 1.89 range selections per task against 1.79,
+    all tasks still within 10. Index: 1,754 cards to 8,958 chunks in 867 s.
+    Retrieval, domain filter, paired against the v3 catalogue
+    (`paired-v3m3-2026-10-15.json`): rag hybrid + collapse recall@10 +0.016
+    [−0.004, +0.042], complete@10 +0.019 [−0.038, +0.075]; wildfire returns to
+    its v2 level (0.92 / 0.82, from 0.83 / 0.64), legal complete@10 falls
+    from 0.87 to 0.80. BM25 + collapse is slightly worse (recall@5 −0.058
+    [−0.112, −0.014]). Against v2, rag hybrid + collapse on v3m3: recall@10
+    +0.145 [+0.065, +0.226], complete@10 +0.075 [0.000, +0.151]. **Decided:**
+    groups of three or more for agentic discovery, whose search is rag
+    hybrid; the overall difference is within noise, and the decision removes
+    the wildfire regression for that ranker. Chosen on development tasks.
+  - **Agentic discovery is built** as the `discovery_agent` condition
+    (`ds_research_agent/agent/discovery.py`, `eval/kramabench/discovery_agent.py`;
+    selection core in `ds_research_agent/catalogue/selection.py`). Tools:
+    `search_catalogue` (rag_search, domain filter fixed by the application,
+    collapsed), `read_card` (bounded; with member globs, the matching
+    members), and `choose_files` (discovered IDs, groups narrowed by member
+    globs expanded against the manifest; a selection with problems is
+    returned for a fix). Budgets in the new `discovery` settings: 12 steps,
+    900 s. Every model request and search is a ledger step, so `replay`
+    needs neither the model nor rag-toolkit. Scoring profile
+    `discovery-v1`: recall and complete set of the chosen files, with
+    precision, extra files, searches, and time; `report --out` writes rows
+    for `discovery_paired`. The comparison with single-shot is registered in
+    [evaluation-plan.md](evaluation-plan.md) before the development run.
+  - **Smoke** (2 tasks, v3m3, think off, Ollama otherwise idle): both chose
+    files. environment-easy-1: two searches, one card read with `*2013*`,
+    and the group narrowed to exactly the gold file, in 67 s. legal-hard-1:
+    15 searches over 11 turns looking for population data, then the whole
+    52-member state group plus two files: recall 1.0, precision 0.02, in
+    207 s. The replay matched with 0 differences.
 
 ## D3 — Sandbox and analysis with given files
 

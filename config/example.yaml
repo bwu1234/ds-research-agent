@@ -35,6 +35,7 @@ catalogue:
   text_preview_lines: 40
   csv_title_scan_rows: 5
   group_rules: [directory+schema, pattern]
+  group_min_members: 3         # D2 progress (d)
   group_member_list_limit: 40
 
 rag_service:
@@ -58,6 +59,16 @@ agent:
   budget_warning_steps: 2
   submit_checks: 2
   server_retries: 2
+
+discovery:
+  max_steps: 12
+  max_wall_s: 900
+  search_passages: 20         # as the single-shot rag baseline
+  snippet_chars: 200
+  max_card_chars: 6000
+  max_listed_members: 40
+  collapse_groups: true       # D2 progress (c)
+  budget_warning_steps: 2
 
 sandbox:
   docker: docker
