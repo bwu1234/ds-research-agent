@@ -1566,7 +1566,7 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     `given_files-smoke-0404-b` (0.50; `legal-hard-1` scored 0.004, the
     task's known run-to-run variation). All four runs submitted, reproduced,
     and passed observed access; both batches replay with 0 differences.
-  - **Decode-speed signal, open.** In `given_files-smoke-0404`,
+  - **Decode-speed signal, closed in (o): no regression.** In `given_files-smoke-0404`,
     `legal-hard-1` took 19 steps (rc0: 14) and 505 s (rc0: 202 s). From
     8k context, decode fell to about 15 tok/s on 6 of its 7 steps;
     the server log shows the adaptive speculative-decoding depth falling
@@ -1589,8 +1589,8 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
   uncertainty and a failure-taxonomy count are in (k) and (m); the sandbox,
   audit, and synthetic-case tests are in (a) to (d1). This entry adds the
   measured memory the acceptance asks for, decides context compaction, and
-  records what is carried forward. No model was called for any figure here
-  except the abandoned decode recheck below.
+  records what is carried forward. The only model calls are the decode
+  rechecks below (resent recorded requests, not agent runs).
   - **Context growth and compaction** (from the ledger's per-step
     `prompt_eval_tokens`, which is the whole prompt; `given_files`
     development passes on 0.35.1, rc0 pass 1, and rc0 pass 2). Largest
@@ -1657,20 +1657,32 @@ inventory, (c) persistent kernel, (d) agent loop and `submit_answer`,
     now, so auto-update is on. Turn it off in the app's settings before
     D4's model batches; the harness's refusal to resume a batch on another
     version remains the backstop.
-  - **Decode speed on 0.40.4 (from (n)): still open, now a D4
-    precondition.** A recheck resent recorded rc0 requests at 8-16k context
-    in step order. It was abandoned after 6 steps (decode 18.7 to 24.1 tok/s
-    against 22.8 to 27.6 on rc0) because another local project began calling
-    the same model concurrently, which invalidates timing. The server log
-    rules that out as the cause of (n)'s slow steps: the only foreign
-    requests then (`/api/generate`, 10:32 to 10:34 local) ended before
-    `legal-hard-1`'s slow steps (10:35 to 10:40). Before D4's first model
-    batch, rerun the recheck with no other Ollama client and compare against
-    the rc0 figures above.
+  - **Decode speed on 0.40.4 (from (n)): no regression.** A first recheck
+    was abandoned after 6 steps because another local project began calling
+    the same model concurrently, which invalidates timing. The rerun,
+    2026-10-14 22:51 to 23:03 local, had the server to itself (the log shows
+    only its 24 chat requests and the pre-check), no model loaded at the
+    start, and 83% of memory free. It resent 24 recorded
+    `rc0404-dev-given_files` requests at 8.2k to 13.1k context, six
+    consecutive steps from each of the four runs with the most such steps,
+    in step order, at temperature 0 with output capped at 1,024 tokens.
+    Decode on 0.40.4: median 24.0 tok/s, range 22.1 to 28.6, none below
+    17; the same requests on rc0: median 23.9. Paired difference median
+    +0.4 tok/s (mean +0.5). Speculative draft depth averaged 2.0 to 4.1 per
+    request, never near 0. So (n)'s collapse to about 15 tok/s is not a
+    property of 0.40.4 at this context. Its likely cause is the memory
+    pressure (n) recorded, swap at 14.6 of 16 GB after the 51.5k-token
+    reproducer, though that was not reproduced. The server log also rules
+    out a concurrent client then: the only foreign requests
+    (`/api/generate`, 10:32 to 10:34 local) ended before `legal-hard-1`'s
+    slow steps (10:35 to 10:40). Data:
+    `data/measurements/decode_recheck_0.40.4.json` (benchmark-derived; stays
+    out of Git).
   - **Operating rule, from the above.** Another client using the model
     during a batch slows decode and can evict the runner. Model batches need
     the Ollama server to themselves; check `/api/ps` and the server log
     for foreign requests over a batch's window before reporting its timing.
+    Start batches with free memory, not after a long-context stress test.
 
 ## D4 — End to end with provenance
 
