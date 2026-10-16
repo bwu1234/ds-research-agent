@@ -11,6 +11,7 @@
     uv run python -m eval.kramabench.run --config config/local.yaml show --run RUN_ID
     uv run python -m eval.kramabench.run --config config/local.yaml label --run RUN_ID \\
         --category CATEGORY --note TEXT
+    uv run python -m eval.kramabench.run --config config/local.yaml serve [--port 8765]
 
 Conditions: ``no_tools`` and ``inline`` (D1 baselines, one request per
 task), ``given_files`` (the D3 agent), and ``codeagent`` (the D3 minimal
@@ -26,6 +27,10 @@ matches. Output is aggregates only; per-task answers stay in the ledger,
 except ``show``, which renders one run with its gold answer for failure
 analysis (local only, like the ledger). ``failures`` applies the rule labels
 and lists each failed run's taxonomy label; ``label`` sets one by hand.
+``serve`` starts the run viewer (``eval.kramabench.viewer``) on 127.0.0.1: the
+ledger opened read-only, as pages for batches, runs with their traces, tasks,
+and comparisons. Like ``show`` it quotes gold answers, so it stays local; holdout
+batches and runs stay hidden unless ``--unseal-holdout`` is given.
 """
 
 from __future__ import annotations
@@ -48,7 +53,14 @@ from ds_research_agent.ledger import Batch, Ledger, canonical, utc_now
 from ds_research_agent.models.ollama_client import OllamaModelClient
 from ds_research_agent.retrieval.mcp_adapter import McpRetrieval
 from ds_research_agent.sandbox import InputMount, SandboxRunner, SandboxUnavailable
-from eval.kramabench import agent_runs, codeagent_runs, discovery_agent, failures, report
+from eval.kramabench import (
+    agent_runs,
+    codeagent_runs,
+    discovery_agent,
+    failures,
+    report,
+    viewer,
+)
 from eval.kramabench.baselines import (
     AGENT_CONDITIONS,
     CONDITIONS,
@@ -592,6 +604,12 @@ def cmd_failures(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace, settings: Settings) -> int:
+    split, tasks = frozen_split(settings)
+    ctx = viewer.Context(settings, split, tasks, unseal_holdout=args.unseal_holdout)
+    return viewer.serve(ctx, settings.eval.ledger_path, args.port)
+
+
 def cmd_backfill_revision(args: argparse.Namespace, settings: Settings) -> int:
     """Set repo_revision on runs recorded before schema 4 (never overwrites)."""
     ledger = Ledger(settings.eval.ledger_path)
@@ -647,6 +665,9 @@ def main(argv: list[str] | None = None) -> int:
     lb.add_argument("--run", required=True)
     lb.add_argument("--category", choices=failures.CATEGORIES, required=True)
     lb.add_argument("--note", required=True)
+    sv = sub.add_parser("serve", help="local read-only viewer for the ledger")
+    sv.add_argument("--port", type=int, default=8765)
+    sv.add_argument("--unseal-holdout", action="store_true")
     bf = sub.add_parser("backfill-revision")
     bf.add_argument("--batch", required=True)
     bf.add_argument("--revision", required=True)
@@ -665,6 +686,7 @@ def main(argv: list[str] | None = None) -> int:
         "failures": cmd_failures,
         "show": cmd_show,
         "label": cmd_label,
+        "serve": cmd_serve,
         "backfill-revision": cmd_backfill_revision,
     }
     try:

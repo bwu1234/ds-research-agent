@@ -42,7 +42,7 @@ flowchart TD
 | Agent loop | Plan, search, inspect, write code, run, fix, answer | Bounded loop with injected interfaces; append-only, cache-stable context |
 | Sandbox runner | Execute agent-written Python under isolation and limits | Persistent per-run kernel for exploration, fresh process for verification; technology decided in D3 |
 | Run ledger | Every model turn, tool call, program, output, file hash | SQLite plus files under an ignored directory |
-| Run replay | Render one run from the ledger for failure analysis | CLI over the ledger; read-only |
+| Run replay | Render one run from the ledger for failure analysis | `show` in the CLI, and a local web viewer (`run serve`, `eval/kramabench/viewer/`) over the ledger opened read-only |
 | Verifier | Rerun the final program, audit data-file reads, and compare the value | Same sandbox runner, fresh instance |
 | Evaluation harness | Splits, conditions, scoring, reports | Local deterministic KramaBench variant; optional judged comparison |
 

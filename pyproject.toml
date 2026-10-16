@@ -27,7 +27,9 @@ dev = [
     "types-defusedxml==0.7.0.20260504",
 ]
 # The D3 minimal comparator (eval/kramabench/codeagent_runs.py); not the agent.
+# jinja2: the run viewer's prompt rendering (eval/kramabench/viewer/prompt.py).
 eval = [
+    "jinja2==3.1.6",
     "smolagents==1.26.0",
 ]
 

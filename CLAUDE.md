@@ -37,6 +37,9 @@ the `discovery_agent` condition (`ds_research_agent/agent/discovery.py`,
 by discovered IDs with member filters (`ds_research_agent/catalogue/selection.py`),
 scored as `discovery-v1`; its registered comparison with single-shot search
 is inconclusive (D2 progress (e)).
+A local read-only web viewer over the ledger (`eval/kramabench/viewer/`,
+`run serve`) shows batches, per-run traces, tasks across batches, and paired
+comparisons, with numbers from the report functions.
 Group-ID selection in `run_python` (D4) is not built. rag-toolkit's pooled (unfiltered) search is
 not deterministic across runs; domain-filtered search is.
 rag-toolkit is pinned at `0f6eb38`. The harness refuses an Ollama version listed in
@@ -111,6 +114,7 @@ uv run python -m eval.kramabench.run --config config/local.yaml run --condition 
 uv run python -m eval.kramabench.run --config config/local.yaml run --condition codeagent --tasks smoke --think off   # D3 comparator
 uv run python -m eval.kramabench.run --config config/local.yaml failures --batch <id>   # rule labels, list failed runs
 uv run python -m eval.kramabench.run --config config/local.yaml show --run <run_id>     # one run with its gold answer; local only
+uv run python -m eval.kramabench.run --config config/local.yaml serve   # read-only web viewer on 127.0.0.1:8765: batches, run traces, tasks, compare; local only, holdout sealed
 uv run python -m eval.kramabench.run --config config/local.yaml compare --batch <base> --batch <other> --subset untuned   # D3 primary: the 41 untuned dev tasks (--subset sample: the 12)
 ```
 

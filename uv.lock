@@ -380,6 +380,7 @@ dev = [
     { name = "types-pyyaml" },
 ]
 eval = [
+    { name = "jinja2" },
     { name = "smolagents" },
 ]
 
@@ -406,7 +407,10 @@ dev = [
     { name = "types-openpyxl", specifier = ">=3.1.5.20260827" },
     { name = "types-pyyaml" },
 ]
-eval = [{ name = "smolagents", specifier = "==1.26.0" }]
+eval = [
+    { name = "jinja2", specifier = "==3.1.6" },
+    { name = "smolagents", specifier = "==1.26.0" },
+]
 
 [[package]]
 name = "et-xmlfile"

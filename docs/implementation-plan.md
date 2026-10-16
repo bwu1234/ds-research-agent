@@ -2135,6 +2135,41 @@ static or recorded:
   runs: turns, programs, observed reads with hashes, and the rerun result. It
   runs no model or sandbox and serves no benchmark data, so it fits a
   scale-to-zero free tier such as Cloud Run.
+  - **Local viewer, done 2026-10-15** (`eval/kramabench/viewer/`,
+    `run serve`). It is not that published viewer: it reads the real ledger,
+    which quotes benchmark data and gold answers, so it binds 127.0.0.1 only,
+    refuses other Host headers (DNS rebinding), and hides holdout batches,
+    runs, and tasks unless started with `--unseal-holdout`. It opens the
+    ledger read-only (`mode=ro`, `query_only`; nothing created or migrated),
+    so it can stay open while a batch writes. Pages: batches (headline means
+    from `report.outcomes`), one batch (`report.summarise` or the discovery
+    summary, then one row per run), one run's trace, one task across
+    batches, and compare (`report.compare`). The trace rebuilds the
+    conversation from the append-only requests and numbers requests back
+    into loop steps with the loop's own `check_response`, so each cell sits
+    under the tool call that ran it. On the 2026-10-15 ledger (1,275 runs)
+    every run was append-only and all 8,562 inline programs were placed
+    (4,283 under given-files calls, 4,279 codeagent cells under their
+    reply), none unplaced. A published synthetic demo could reuse it with a
+    synthetic ledger.
+  - **Prompt text, approximate, 2026-10-15** (`viewer/prompt.py`). `/api/chat`
+    builds the prompt inside Ollama (`renderer: qwen3.8` in the model's image
+    config) and does not return it, so the ledger never had it. The viewer
+    renders each recorded request through the model's own chat template
+    (`tokenizer_config.json` layer, sha256 `c3cf9e34…`, vendored under
+    `viewer/chat_templates/`, `jinja2` 3.1.6 pinned in the `eval` group),
+    preparing tools, tool-call arguments, and `think` the way Ollama
+    0.40.4's `model/renderers/qwen35.go` does (tools re-encoded from
+    `api.Tool`, which drops `additionalProperties`; Go formatting of
+    non-string arguments; unset `think` is xhigh). Check, tokenizing with the
+    model's `tokenizer.json` against recorded `prompt_eval_tokens`: 1,185 of
+    1,185 requests exact on Ollama 0.40.4 and 0.40.4-rc0 (given-files, its
+    second pass, discovery, smoke). On 0.35.1 the 24 think-sweep requests
+    are exact, 45 of 53 inline requests are exact (the rest are numeric- or
+    CRLF-heavy data, 1 to 1,738 tokens over; not determined whether text or
+    tokenization differs), and multi-turn given-files is exact on 69 of 400,
+    so the viewer flags pre-0.40 batches. Limitation: the ledger stores
+    canonical JSON, so object keys appear sorted, not in the order sent.
 
 Running the agent live in the cloud is out of scope. Checked 2026-10-04
 against [Google Cloud's free features](https://docs.cloud.google.com/free/docs/free-cloud-features):
