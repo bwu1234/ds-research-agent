@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); profiler v3 with group cards and group-level retrieval 2026-10-15, see D2 progress (c); agentic-discovery condition built and its registered comparison decided (inconclusive) 2026-10-15, see D2 progress (d) and (e); group-ID selection in `run_python` (D4) next); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); profiler v3 with group cards and group-level retrieval 2026-10-15, see D2 progress (c); agentic-discovery condition built and its registered comparison decided (inconclusive) 2026-10-15, see D2 progress (d) and (e)); D4 in progress (the `end_to_end` condition built and checked offline, and its comparison criteria registered, 2026-10-16, see D4 progress (a)); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -2071,6 +2071,47 @@ the same tasks and analysis configuration. Report answer score, strict answer
 accuracy, observed-access verification, reproduction rate, and verified success
 separately. The gap measures the effect of this discovery condition, not a pure
 causal retrieval cost. Keep the holdout sealed until D5.
+
+### D4 progress
+
+- **(a) The `end_to_end` condition, built 2026-10-16; no model run yet.**
+  Decided before building: discovery starts from single-shot collapsed
+  search, as D2 (e) allows (agentic discovery stays the D5 ablation), and a
+  growing selection restarts the kernel rather than adding mounts to a
+  running container (which Docker cannot do).
+  - **Condition.** One domain-filtered `rag_search` on the question (hybrid,
+    collapsed, the first `end_to_end.seed_cards` = 10, as single-shot
+    `@10`) seeds the discovered set and is listed in the prompt. The given-files
+    loop then runs with `read_card`, a `run_python` that takes `select`
+    (discovered file or group IDs, groups narrowed by member globs), and the
+    given-files `submit_answer`. The system prompt shares the given-files
+    working rules and submission contract byte for byte
+    (`tools.WORK_AND_FINISH`); the given-files prefix is unchanged
+    (`662c04e7…`, pinned by a test). Analysis budget: `agent`'s, as
+    `given_files`. The seed search is timed apart (its `search` step).
+  - **Access.** Only selected files are mounted, at `/data/<catalogue
+    path>`; each newly selected file is checked against its manifest hash (a
+    mismatch stops the batch). Selections accumulate; one that adds files
+    replaces the mounts and ends the kernel session. Kernel sessions and
+    reruns now record their mounts (`inputs`, optional, so older ledgers
+    load), and each selection is a ledger `selection` step; no schema change.
+  - **Reports.** As for `given_files` (answer score, strict, verified
+    success, reproduction, access), plus `agent.discovery`: the selection's
+    recall, complete set, and precision against resolved `data_sources`,
+    whether the seed results contained the gold set (`seed_complete`, the
+    ceiling the analysis can reach), selections, refusals, and kernel
+    sessions per run.
+  - **Checks.** Offline: `tests/test_end_to_end.py` (selection, mounts,
+    restart notice, refused and unselected files, hash mismatch, seed limit,
+    scoring, replay with 0 differences). Docker: `tests/sandbox/test_selection_mounts.py`
+    (growth on real containers, the 715-member group) — written, not yet run.
+  - **Registered criteria** (evaluation plan, "End to end"), fixed
+    2026-10-16 before any end-to-end model run: paired strict accuracy on
+    the 41 untuned tasks; retained if no worse than −10 points and median
+    wall time at most 1.25× `given_files`.
+  - **Not done.** The Docker tests; a smoke run of `end_to_end` on the
+    model; the development pass. The pairing baseline, `given_files` on
+    0.40.4 (`0404-dev-given_files`), started 2026-10-16.
 
 ## D5 — Focused ablations and final evaluation
 

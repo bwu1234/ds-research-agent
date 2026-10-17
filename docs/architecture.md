@@ -52,7 +52,10 @@ Tools as designed below. Implemented so far: `run_python` (code only, over
 labelled files) and `submit_answer` in the given-files loop, and
 `search_catalogue`, `read_card`, and a discovery-only finish, `choose_files`,
 in the agentic-discovery loop (`ds_research_agent/agent/discovery.py`, D2).
-Selecting IDs in `run_python` is D4. The tool-call validation and repair
+In the end-to-end condition (`ds_research_agent/agent/end_to_end.py`, D4),
+`read_card`, a `run_python` that selects discovered IDs (`select`), and the
+given-files `submit_answer`; its first version has no `search_catalogue`
+(one single-shot search seeds the discovered set; see below). The tool-call validation and repair
 policy is in `ds_research_agent/agent/tool_calls.py`. At rag-toolkit `0f6eb38` (the pin; its MCP code is unchanged since `b7434cf`) the MCP server
 offers `rag_search`, `rag_list_corpora`, `rag_list_documents`,
 `rag_read_document`, and `rag_find`. Only `rag_search` backs an agent tool;
@@ -79,6 +82,17 @@ see [data-and-provenance.md](data-and-provenance.md#group-cards)), and the
 mount set expands to those files only. The application expands filters
 against the group's member list, never against the filesystem. Each execution
 records its allowed file set.
+
+As implemented (D4), one domain-filtered single-shot search on the question
+(collapsed, the first `end_to_end.seed_cards`) seeds the discovered set and
+is listed in the prompt; with no search tool, the set does not grow. The
+selection accumulates over the run, each newly selected file is checked
+against its manifest hash, and the mounts are replaced by the whole
+selection. A running container cannot gain bind mounts, so a selection that
+adds files ends the kernel session (the tool result says state was lost).
+Each kernel session and each fresh rerun records its mounts (`inputs`), and
+each selection is a `selection` step in the ledger. `files_used` must be
+within the selection, and the verifier's rerun mounts the whole selection.
 Neither `read_card` nor Python may enumerate the complete manifest or access
 unselected raw files. Reject path traversal, symlink escapes, and guessed IDs.
 Full-collection filesystem access is a separate evaluation condition, if added.

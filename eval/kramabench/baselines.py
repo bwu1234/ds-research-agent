@@ -497,7 +497,7 @@ async def run_task(
 
 
 # Conditions whose runs submit a program; their verified success is a bool.
-PROGRAM_CONDITIONS = frozenset({"given_files", "codeagent"})
+PROGRAM_CONDITIONS = frozenset({"given_files", "codeagent", "end_to_end"})
 # Conditions run by an ``AgentTask``: the program conditions and agentic
 # discovery (eval.kramabench.discovery_agent), which chooses files instead.
 AGENT_CONDITIONS = PROGRAM_CONDITIONS | {"discovery_agent"}

@@ -79,6 +79,9 @@ class SandboxRun(_Frozen):
     # The container's cgroup peak memory; None before it was recorded
     # (older ledgers) or if the wrapper could not read it.
     memory_peak_bytes: int | None = None
+    # Container paths of the input mounts: the run's allowed file set
+    # (empty in older ledgers).
+    inputs: tuple[str, ...] = ()
 
 
 class SandboxError(RuntimeError):
@@ -314,4 +317,5 @@ class SandboxRunner:
             ],
             scratch_dir=scratch,
             memory_peak_bytes=int(peak_raw) if peak_raw.isdigit() else None,
+            inputs=tuple(cp for _, cp in mounts),
         )

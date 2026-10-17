@@ -5,6 +5,11 @@ replayed from the ledger without Docker. ``DockerWorkspace`` keeps one
 kernel session per run, starts a new one (same scratch, state lost) after
 the kernel dies, and reruns the final program in a fresh container with
 empty scratch.
+
+A running container cannot gain bind mounts, so ``set_inputs`` (the
+end-to-end condition's growing selection) ends the live session; the next
+cell starts a new one with the new mounts, and kernel state is lost. Each
+session records its own mounts (``SessionEnd.inputs``).
 """
 
 from __future__ import annotations
@@ -35,6 +40,12 @@ class Workspace(Protocol):
     async def rerun(self, program: str) -> SandboxRun: ...
 
     async def close(self) -> list[SessionEnd]: ...
+
+
+class SelectableWorkspace(Workspace, Protocol):
+    async def set_inputs(self, inputs: Sequence[InputMount]) -> None:
+        """Mount these inputs from the next cell and rerun on (ends the session)."""
+        ...
 
 
 class DockerWorkspace:
@@ -70,6 +81,11 @@ class DockerWorkspace:
         if self._session is not None:
             session, self._session = self._session, None
             self._ends.append(await asyncio.to_thread(session.close))
+
+    async def set_inputs(self, inputs: Sequence[InputMount]) -> None:
+        if list(inputs) != self._inputs:
+            await self._end_session()
+            self._inputs = list(inputs)
 
     async def _check_docker(self) -> None:
         """Turn a sandbox failure into ``SandboxUnavailable`` when Docker

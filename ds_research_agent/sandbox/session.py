@@ -82,6 +82,9 @@ class SessionEnd(_Frozen):
     observed_reads: list[ObservedRead]
     scratch_dir: Path
     memory_peak_bytes: int | None = None
+    # Container paths of the input mounts, fixed for the session's life:
+    # the allowed file set of each of its cells (empty in older ledgers).
+    inputs: tuple[str, ...] = ()
 
 
 class KernelSession:
@@ -216,6 +219,7 @@ class KernelSession:
             observed_reads=self._reads(audit),
             scratch_dir=self.scratch,
             memory_peak_bytes=msg.get("memory_peak_bytes"),
+            inputs=tuple(cp for _, cp in self._mounts),
         )
         return self._end
 

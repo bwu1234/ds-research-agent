@@ -272,6 +272,10 @@ class ReplayWorkspace:
     async def rerun(self, program: str) -> SandboxRun:
         return SandboxRun.model_validate(self._take(self._reruns, program, "rerun").record)
 
+    async def set_inputs(self, inputs: Sequence[InputMount]) -> None:
+        """End-to-end selections: the recorded sessions and reruns already
+        carry the mounts they had."""
+
     async def close(self) -> list[SessionEnd]:
         return list(self._ends)
 
@@ -344,7 +348,7 @@ def summary_extra(ledger: Ledger, run_ids: Sequence[str]) -> dict[str, Any]:
     steps, cells, replans, checks, submitted, reproduced, access = [], [], 0, 0, 0, 0, 0
     for rid in run_ids:
         progs = ledger.programs(rid)
-        steps.append(len(ledger.steps(rid)))
+        steps.append(sum(s.kind == "model" for s in ledger.steps(rid)))
         cells.append(sum(p.kind == "cell" for p in progs))
         replans += sum(p.replan_requested for p in progs)
         checks += sum(p.kind == "submit_check" for p in progs)

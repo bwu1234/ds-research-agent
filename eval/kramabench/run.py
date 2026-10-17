@@ -14,9 +14,12 @@
     uv run python -m eval.kramabench.run --config config/local.yaml serve [--port 8765]
 
 Conditions: ``no_tools`` and ``inline`` (D1 baselines, one request per
-task), ``given_files`` (the D3 agent), and ``codeagent`` (the D3 minimal
+task), ``given_files`` (the D3 agent), ``codeagent`` (the D3 minimal
 comparator, smolagents CodeAgent on the same sandbox; see
-``eval.kramabench.codeagent_runs``). Program conditions need Docker, and
+``eval.kramabench.codeagent_runs``), ``discovery_agent`` (D2; chooses files,
+no answer), and ``end_to_end`` (D4: single-shot search, then the analysis
+agent on the files it selects; needs the rag-toolkit server and the
+``end_to_end`` settings). Program conditions need Docker, and
 build or reuse the sandbox image. ``run`` calls the local model (slow, free) and needs the
 frozen split. Task
 sets: ``smoke`` (the two ``-tiny`` tasks), ``sample`` (the fixed D3 sample),
@@ -57,6 +60,7 @@ from eval.kramabench import (
     agent_runs,
     codeagent_runs,
     discovery_agent,
+    end_to_end,
     failures,
     report,
     viewer,
@@ -83,8 +87,9 @@ ALL_CONDITIONS = (
     agent_runs.CONDITION,
     codeagent_runs.CONDITION,
     discovery_agent.CONDITION,
+    end_to_end.CONDITION,
 )
-# Program conditions: the D3 agent and the minimal comparator.
+# Given-files program conditions: the D3 agent and the minimal comparator.
 AGENT_TASKS = {
     agent_runs.CONDITION: (agent_runs.run_agent_task, agent_runs.prefix_sha256),
     codeagent_runs.CONDITION: (codeagent_runs.run_codeagent_task, codeagent_runs.prefix_sha256),
@@ -186,6 +191,8 @@ def new_batch(
         system_prompt_sha256=(
             discovery_agent.prefix_sha256()
             if condition == discovery_agent.CONDITION
+            else end_to_end.prefix_sha256()
+            if condition == end_to_end.CONDITION
             else AGENT_TASKS[condition][1]()
             if condition in PROGRAM_CONDITIONS
             else sha256_text(SYSTEM_PROMPTS[condition])  # type: ignore[index]
@@ -203,6 +210,10 @@ def batch_sections(condition: str) -> tuple[str, ...]:
     """Settings sections that can change a batch's results."""
     if condition == discovery_agent.CONDITION:
         return ("eval", "agent", "discovery", "catalogue", "rag_service")
+    if condition == end_to_end.CONDITION:
+        return (
+            "eval", "agent", "sandbox", "discovery", "end_to_end", "catalogue", "rag_service"
+        )  # fmt: skip
     return ("eval", "agent", "sandbox") if condition in PROGRAM_CONDITIONS else ("eval",)
 
 
@@ -244,18 +255,24 @@ def resume_problems(old: Batch, new: Batch) -> list[str]:
     return out
 
 
-def docker_agent_task(settings: Settings, condition: str) -> AgentTask:
-    """Agent runs on real containers; builds (or reuses) the sandbox image."""
+def sandbox_image(settings: Settings) -> tuple[SandboxRunner, str]:
+    """The runner, and the image it builds (or reuses) for this batch."""
     runner = SandboxRunner(settings.sandbox)
     image = runner.build_image()
     print(f"sandbox image {image.image_id} ({image.strace})", file=sys.stderr)
+    return runner, image.image_id
+
+
+def docker_agent_task(settings: Settings, condition: str) -> AgentTask:
+    """Agent runs on real containers; builds (or reuses) the sandbox image."""
+    runner, image_id = sandbox_image(settings)
 
     def workspace_for(_t: Task, _r: int, mounts: Sequence[InputMount]) -> DockerWorkspace:
         return DockerWorkspace(runner, mounts)
 
     async def task(h: Harness, b: Batch, t: Task, r: int, client: Any) -> Any:
         run_task = AGENT_TASKS[condition][0]
-        return await run_task(h, b, t, r, client, workspace_for, image.image_id)
+        return await run_task(h, b, t, r, client, workspace_for, image_id)
 
     return task
 
@@ -284,6 +301,25 @@ async def _run_discovery_batch(
             await run_batch(h, batch, lambda _t, _r: client, _progress, task, guard)
 
 
+async def _run_end_to_end_batch(
+    h: Harness, batch: Batch, client: Any, guard: Callable[[], None]
+) -> None:
+    """One MCP server for the batch, and one workspace per run, starting with
+    nothing mounted; the agent's selections set the mounts."""
+    manifest = discovery_manifest(h.settings)
+    runner, image_id = sandbox_image(h.settings)
+    log = h.settings.eval.ledger_path.parent / f"{batch.batch_id}.server.log"
+    with log.open("a", encoding="utf-8") as errlog:
+        async with McpRetrieval(h.settings.mcp, errlog=errlog) as r:
+
+            async def task(h: Harness, b: Batch, t: Task, rep: int, c: Any) -> Any:
+                return await end_to_end.run_end_to_end_task(
+                    h, b, t, rep, c, lambda *_: DockerWorkspace(runner, []), image_id, r, manifest
+                )
+
+            await run_batch(h, batch, lambda _t, _r: client, _progress, task, guard)
+
+
 def _progress(run: Any, done: int, total: int) -> None:
     print(f"[{done}/{total}] {run.task_key} r{run.repeat}", file=sys.stderr, flush=True)
 
@@ -291,6 +327,8 @@ def _progress(run: Any, done: int, total: int) -> None:
 def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
     split, tasks = frozen_split(settings)
     ev = settings.eval
+    if args.condition == end_to_end.CONDITION and settings.end_to_end is None:
+        raise SystemExit("error: the end_to_end condition needs an end_to_end settings section")
     agentic = args.condition in AGENT_CONDITIONS
     if not agentic and ev.task_timeout_s > settings.model.request_timeout_s:
         raise SystemExit(
@@ -350,6 +388,8 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
     try:
         if args.condition == discovery_agent.CONDITION:
             asyncio.run(_run_discovery_batch(h, batch, client, guard))
+        elif args.condition == end_to_end.CONDITION:
+            asyncio.run(_run_end_to_end_batch(h, batch, client, guard))
         else:
             agent_task = docker_agent_task(settings, args.condition) if agentic else None
             asyncio.run(run_batch(h, batch, lambda _t, _r: client, _progress, agent_task, guard))
@@ -413,6 +453,18 @@ def cmd_replay(args: argparse.Namespace, settings: Settings) -> int:
         async def agent_task(h: Harness, b: Batch, t: Task, r: int, client: Any) -> Any:
             searcher = discovery_agent.ReplaySearcher(all_steps.get((t.key, r), []))
             return await discovery_agent.run_discovery_task(h, b, t, r, client, searcher, manifest)
+
+    elif orig.condition == end_to_end.CONDITION:
+        manifest = discovery_manifest(settings)
+
+        async def agent_task(h: Harness, b: Batch, t: Task, r: int, client: Any) -> Any:
+            o = orig_runs[(t.key, r)]
+            searcher = discovery_agent.ReplaySearcher(all_steps.get((t.key, r), []))
+            ws = agent_runs.ReplayWorkspace(ledger.programs(o.run_id), (t.key, r) in at_deadline)
+            image = o.input_manifest.get("sandbox_image")
+            return await end_to_end.run_end_to_end_task(
+                h, b, t, r, client, lambda *_: ws, image, searcher, manifest
+            )
 
     elif orig.condition in PROGRAM_CONDITIONS:
 
