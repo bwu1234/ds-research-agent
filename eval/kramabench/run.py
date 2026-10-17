@@ -6,6 +6,8 @@
     uv run python -m eval.kramabench.run --config config/local.yaml score --batch ID
     uv run python -m eval.kramabench.run --config config/local.yaml report --batch ID
     uv run python -m eval.kramabench.run --config config/local.yaml compare --batch A --batch B
+    uv run python -m eval.kramabench.run --config config/local.yaml compare \\
+        --batch A1 --batch A2 --vs B1 --vs B2 --subset untuned [--rule d4]
     uv run python -m eval.kramabench.run --config config/local.yaml list
     uv run python -m eval.kramabench.run --config config/local.yaml failures --batch ID
     uv run python -m eval.kramabench.run --config config/local.yaml show --run RUN_ID
@@ -548,7 +550,7 @@ def cmd_compare(args: argparse.Namespace, settings: Settings) -> int:
     split, tasks = frozen_split(settings)
     ledger = Ledger(settings.eval.ledger_path)
     base = ledger.batch(args.batch[0])
-    if any(ledger.batch(b).condition == discovery_agent.CONDITION for b in args.batch):
+    if any(ledger.batch(b).condition == discovery_agent.CONDITION for b in args.batch + args.vs):
         raise SystemExit(
             "error: compare pairs answer scores; for discovery_agent batches, write "
             "`report --out` files and pair them with eval.kramabench.discovery_paired"
@@ -560,6 +562,10 @@ def cmd_compare(args: argparse.Namespace, settings: Settings) -> int:
         "untuned": [k for k in base.task_keys if k not in sample],
         "sample": [k for k in base.task_keys if k in sample],
     }[args.subset]
+    if args.vs:
+        return _compare_pooled(args, settings, ledger, tasks, keys)
+    if args.rule:
+        raise SystemExit("error: --rule applies to a pooled comparison (--vs)")
     for bid in args.batch[1:]:
         out = report.compare(
             ledger,
@@ -579,6 +585,48 @@ def cmd_compare(args: argparse.Namespace, settings: Settings) -> int:
             )
             print(f"warning: {out['warning']}", file=sys.stderr)
         print(json.dumps(out, indent=2))
+    return 0
+
+
+def _compare_pooled(
+    args: argparse.Namespace,
+    settings: Settings,
+    ledger: Ledger,
+    tasks: dict[str, Task],
+    keys: list[str] | None,
+) -> int:
+    """Every --batch (passes of the base condition) against every --vs (passes
+    of the other), pooled per task; with --rule d4, the registered decision."""
+    base = [ledger.batch(b) for b in args.batch]
+    other = [ledger.batch(b) for b in args.vs]
+    for side, name in ((base, "--batch"), (other, "--vs")):
+        if len({b.condition for b in side}) != 1:
+            raise SystemExit(f"error: the {name} batches must share a condition")
+    versions = {b.ollama_version for b in base + other}
+    if len(versions) != 1 or None in versions:
+        raise SystemExit(f"error: a pooled comparison needs one known Ollama version: {versions}")
+    ev = settings.eval
+    out = report.compare(
+        ledger, base, other, tasks, ev.bootstrap_resamples, ev.bootstrap_seed, keys=keys
+    )
+    out["subset"] = args.subset
+    if args.rule == "d4":
+        if (
+            (base[0].condition, other[0].condition)
+            != (
+                agent_runs.CONDITION,
+                end_to_end.CONDITION,
+            )
+            or args.subset != "untuned"
+            or len(base) != 2
+            or len(other) != 2
+        ):
+            raise SystemExit(
+                "error: the D4 rule is registered for given_files (--batch, 2 passes) against "
+                "end_to_end (--vs, 2 passes) on --subset untuned"
+            )
+        out["d4"] = report.d4_decision(out)
+    print(json.dumps(out, indent=2))
     return 0
 
 
@@ -706,6 +754,18 @@ def main(argv: list[str] | None = None) -> int:
                 default="all",
                 help="tasks to pair: all, all but the 12-task tuning sample (the "
                 "registered D3 primary result), or the sample alone",
+            )
+            p.add_argument(
+                "--vs",
+                action="append",
+                default=[],
+                help="other-condition batch; with --vs, every --batch is pooled against "
+                "every --vs (per-task mean over passes) in one comparison",
+            )
+            p.add_argument(
+                "--rule",
+                choices=("d4",),
+                help="apply a registered decision rule to the pooled comparison",
             )
     sub.add_parser("list")
     f = sub.add_parser("failures")

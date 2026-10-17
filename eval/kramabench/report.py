@@ -13,7 +13,7 @@ from __future__ import annotations
 import random
 import statistics
 from collections import Counter, defaultdict
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -260,31 +260,50 @@ def summarise(
     } | ({"agent": agent, "failures": fails} if agent is not None else {})
 
 
+def _median_task_wall(os_: Sequence[Outcome]) -> float | None:
+    """Median over tasks of each task's mean wall time across its runs."""
+    acc: dict[str, list[float]] = defaultdict(list)
+    for o in os_:
+        if o.wall_s is not None:
+            acc[o.key].append(o.wall_s)
+    return round(statistics.median(statistics.fmean(v) for v in acc.values()), 1) if acc else None
+
+
 def compare(
     ledger: Ledger,
-    base: Batch,
-    other: Batch,
+    base: Batch | Sequence[Batch],
+    other: Batch | Sequence[Batch],
     tasks: dict[str, Task],
     resamples: int,
     seed: int,
     keys: Collection[str] | None = None,
 ) -> dict[str, Any]:
     """Paired difference ``other - base`` over their shared tasks, or over
-    ``keys`` among them (D3: the untuned tasks, then the tuning sample)."""
-    if set(base.task_keys) != set(other.task_keys):
+    ``keys`` among them (D3: the untuned tasks, then the tuning sample).
+
+    Either side may be several batches (passes of one condition): their runs
+    are pooled, so each task's value is its mean over every pass (D3 (m),
+    D4). Pooling narrows run-to-run noise, not task-sampling uncertainty."""
+    bs = [base] if isinstance(base, Batch) else list(base)
+    os_ = [other] if isinstance(other, Batch) else list(other)
+    if not bs or not os_:
+        raise ValueError("each side needs at least one batch")
+    task_sets = {frozenset(b.task_keys) for b in bs + os_}
+    if len(task_sets) != 1:
         raise ValueError("batches cover different tasks; a paired comparison needs the same set")
-    keep = set(base.task_keys) if keys is None else set(keys)
-    if not keep <= set(base.task_keys):
+    (all_keys,) = task_sets
+    keep = set(all_keys) if keys is None else set(keys)
+    if not keep <= all_keys:
         raise ValueError("keys outside the batches' tasks")
     if not keep:
         raise ValueError("no tasks to compare")
-    ob = [o for o in outcomes(ledger, base, tasks) if o.key in keep]
-    oo = [o for o in outcomes(ledger, other, tasks) if o.key in keep]
+    ob = [o for b in bs for o in outcomes(ledger, b, tasks) if o.key in keep]
+    oo = [o for b in os_ for o in outcomes(ledger, b, tasks) if o.key in keep]
     out: dict[str, Any] = {
-        "base": base.batch_id,
-        "other": other.batch_id,
+        "base": bs[0].batch_id if len(bs) == 1 else [b.batch_id for b in bs],
+        "other": os_[0].batch_id if len(os_) == 1 else [b.batch_id for b in os_],
         "tasks": len(keep),
-        "of_tasks": len(base.task_keys),
+        "of_tasks": len(all_keys),
     }
     for field in ("score", "strict"):
         b, o = per_task(ob, field), per_task(oo, field)
@@ -295,7 +314,44 @@ def compare(
             "diff": round(statistics.fmean(o[k] - b[k] for k in b), 4),
             "diff_ci95": [round(ci[0], 4), round(ci[1], 4)],
         }
+    wb, wo = _median_task_wall(ob), _median_task_wall(oo)
+    out["median_task_wall_s"] = {
+        "base": wb,
+        "other": wo,
+        "ratio": round(wo / wb, 3) if wb and wo is not None else None,
+    }
     return out
+
+
+# Registered 2026-10-16 (docs/evaluation-plan.md, "End to end"), before any
+# end-to-end model run: strict accuracy difference, 95% interval, against
+# this margin, and the median task wall-time ratio against this limit.
+D4_MARGIN = -0.10
+D4_MAX_WALL_RATIO = 1.25
+
+
+def d4_decision(cmp: Mapping[str, Any]) -> dict[str, Any]:
+    """The registered D4 rule on a ``compare`` result (base: given files,
+    other: end to end; untuned tasks; two passes a side). Retained if the
+    interval's lower bound is above the margin and the wall ratio is within
+    the limit; worse if its upper bound is below the margin; else
+    inconclusive."""
+    lo, hi = cmp["strict"]["diff_ci95"]
+    ratio = cmp["median_task_wall_s"]["ratio"]
+    if hi < D4_MARGIN:
+        decision = "worse"
+    elif lo > D4_MARGIN and ratio is not None and ratio <= D4_MAX_WALL_RATIO:
+        decision = "retained"
+    else:
+        decision = "inconclusive"
+    return {
+        "rule": "D4 registered 2026-10-16: strict diff 95% interval vs margin, wall ratio limit",
+        "margin": D4_MARGIN,
+        "max_wall_ratio": D4_MAX_WALL_RATIO,
+        "strict_diff_ci95": [lo, hi],
+        "wall_ratio": ratio,
+        "decision": decision,
+    }
 
 
 def choose_think(summaries: Sequence[dict[str, Any]]) -> dict[str, Any]:

@@ -2116,12 +2116,39 @@ causal retrieval cost. Keep the holdout sealed until D5.
     wall time is at most 1.25× `given_files`; worse if its upper bound is
     below −10. Amended the same day, still before any end-to-end run: the
     first version judged "retained" on the point estimate alone.
-  - **Not done.** The Docker tests; a smoke run of `end_to_end` on the
-    model; two development passes of `end_to_end` and a second of
-    `given_files` (about 3.5 h each for `given_files`; `end_to_end` not yet
-    timed); a pooled two-batch `compare` (D3 averaged its passes with a
-    one-off script). The first `given_files` pass on 0.40.4
-    (`0404-dev-given_files`) started 2026-10-16.
+
+- **(b) Validation, and the development passes at one commit, 2026-10-17.**
+  - **Abandoned batch.** `0404-dev-given_files` (started 2026-10-16 at
+    `71f2fce`) was stopped by hand after 8 of 53 runs (one left unfinished),
+    so that every D4 batch runs at one commit. The PR #34 merge had been
+    pulled into the running checkout at about run 6; the process kept the
+    code it had loaded. Not used in any result.
+  - **Docker.** `tests/sandbox/test_selection_mounts.py` passes: growth
+    mounts only the selection, state is lost on growth, sessions and reruns
+    record their mounts, and a 715-file selection (the largest group)
+    reaches its first cell in 2.0 s. The full `-m docker` suite passes (51).
+  - **Smoke** (`e2e-smoke-1`, v3m3, think off, 0.40.4): both runs finished;
+    replay 0 differences. Strict 0 of 2 (smoke is not scored against the
+    criteria). environment-easy-1 selected the right file and computed the
+    gold value, then submitted a marine-beaches-only reading
+    (`given_files` answered it right in its four smoke batches; one run
+    cannot say whether the card's text pushed that reading). legal-hard-1
+    used all 20 steps (`given_files` scores 0.5 or less on it); its first
+    member glob, a bare file name, was refused because globs match whole
+    member paths, and the model recovered with `*NewYork*` a turn later.
+  - **Development passes**, all from a clean checkout at `55037ab`
+    (the PR #34 merge), Ollama 0.40.4, think off, in this order:
+    `d4-dev-given_files-1` (done: 53 runs, strict 60.4%, answer score
+    0.659), `d4-dev-end_to_end-1`, `d4-dev-given_files-2`,
+    `d4-dev-end_to_end-2`. The `end_to_end` batches use
+    `config/local.kramabench-v3m3.yaml` with the `end_to_end` section; its
+    model, agent, sandbox, eval, and benchmark sections equal
+    `config/local.yaml`'s.
+  - **Pooled comparison.** `compare --batch A1 --batch A2 --vs B1 --vs B2
+    --subset untuned --rule d4` pools passes per task and applies the
+    registered rule (`report.d4_decision`, constants fixed in code). It
+    reproduces D3 (m)'s one-off two-pass result exactly (`given_files`
+    minus `codeagent`, untuned: +8.5 [−3.7, +20.7]).
 
 ## D5 — Focused ablations and final evaluation
 

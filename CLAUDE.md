@@ -123,6 +123,7 @@ uv run python -m eval.kramabench.run --config config/local.yaml failures --batch
 uv run python -m eval.kramabench.run --config config/local.yaml show --run <run_id>     # one run with its gold answer; local only
 uv run python -m eval.kramabench.run --config config/local.yaml serve   # read-only web viewer on 127.0.0.1:8765: batches, run traces, tasks, compare; local only, holdout sealed
 uv run python -m eval.kramabench.run --config config/local.yaml compare --batch <base> --batch <other> --subset untuned   # D3 primary: the 41 untuned dev tasks (--subset sample: the 12)
+uv run python -m eval.kramabench.run --config config/local.yaml compare --batch <gf1> --batch <gf2> --vs <e2e1> --vs <e2e2> --subset untuned --rule d4   # passes pooled per task; D4 registered rule
 ```
 
 The holdout is sealed: `run --tasks holdout` needs `--unseal-holdout`, which
