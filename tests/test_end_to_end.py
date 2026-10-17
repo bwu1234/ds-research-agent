@@ -32,7 +32,7 @@ from ds_research_agent.sandbox import (
     SandboxRun,
     SessionEnd,
 )
-from eval.kramabench import agent_runs, discovery_agent, end_to_end, report
+from eval.kramabench import agent_runs, discovery_agent, end_to_end, failures, report
 from eval.kramabench.baselines import Harness, ReplayClient, run_batch
 from eval.kramabench.run import batch_sections, new_batch
 from eval.kramabench.split import split_for
@@ -167,9 +167,10 @@ class Analyst:
             return _reply("run_python", {"code": "x", "select": [{"id": "legal/nope"}]})
         if turn == 3:
             return _reply("run_python", {"code": "y = 2", "select": [{"id": self.gid}]})
+        # The file named by its catalogue path (as the prompt lists it) and its mount.
+        used = [self.path.removeprefix("/data/"), self.path]
         return _reply(
-            "submit_answer",
-            {"answer": self.answer, "files_used": [self.path], "program": "print(1)"},
+            "submit_answer", {"answer": self.answer, "files_used": used, "program": "print(1)"}
         )
 
 
@@ -254,6 +255,9 @@ def test_end_to_end_selects_mounts_scores_and_replays(harness: Harness) -> None:
     assert first is not None and first["added"][0]["sha256"].startswith("sha256:")
     assert steps[5].response and steps[5].response["problems"]
 
+    # Accepted first time, recorded and audited by mount path.
+    sub = h.ledger.submission(run.run_id)
+    assert sub is not None and sub.files_used == [model.path]
     score = h.ledger.score(run.run_id, "local-deterministic-v1")
     assert score is not None and score.strict and score.verified_success
 
@@ -462,6 +466,24 @@ def test_seed_reach_follows_collapse_and_the_runs_catalogue(harness: Harness) ->
 )
 def test_selection_state(row: dict[str, float], state: str) -> None:
     assert report._selection_state(row) == state
+
+
+def test_show_places_a_run_by_how_far_its_gold_files_got(harness: Harness) -> None:
+    h = harness
+
+    class Nothing:
+        async def search(self, query: str, **kw: Any) -> SearchResponse:
+            return _response(query, kw["corpus"], [])
+
+    model = Scripted(_reply("submit_answer", {"answer": 1, "files_used": [], "program": "p"}))
+    batch = _run_one(h, model, Nothing(), "e2e-show")
+    (run,) = h.ledger.runs(batch.batch_id)
+    sel = report.run_selection(h.ledger, run.run_id, h.tasks)
+    assert sel["state"] == "seed_incomplete" and sel["extra_selected"] == []
+    assert sel["not_selected"] == sel["not_in_seed"] and sel["not_in_seed"]
+    text = failures.render_run(h.ledger, run, h.tasks[run.task_key], selection=sel)
+    assert "## selection (evaluator only): seed_incomplete" in text
+    assert "resolution:" not in text  # end-to-end runs record no labelled inputs
 
 
 def test_by_selection_pairs_each_run_with_the_base_on_its_task(harness: Harness) -> None:

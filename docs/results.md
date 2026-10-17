@@ -163,6 +163,13 @@ discovery steps also cost the analysis; tasks the search misses are the
 hardest ones for given files too. Each state holds only 9 to 21 parent
 tasks, so these intervals are wide.
 
+Of the 61 failed end-to-end runs (both passes), discovery is the cause in 15
+(8 a wrong choice among found files, 7 a file the search never returned);
+13 are filter or join errors, mostly the same ones `given_files` makes on
+those tasks; 15 hit the step budget; 12 are other causes, including tasks
+whose needed file is absent from the benchmark and string golds the local
+scorer cannot match.
+
 End-to-end runs use more steps (median 14–16 model requests against 8–9)
 and hit the step budget more often (7–8 of 53 against 2–4). Verified success
 is close between conditions: when end-to-end runs submit, their file access
@@ -182,8 +189,14 @@ checks out as often. `given_files` itself moved from 60.4% to 50.9% strict
   floor for what the model could do with more tokens.
 - The D1 to D3 analysis results use given files. End to end (D4) has one
   configuration: single-shot seed search, 10 cards, the given-files step
-  budget. Its failed runs are not yet labelled, and accuracy has not been
-  split by whether the selection was complete.
+  budget. Its failure labels were read next to the gold answers, so 26 of
+  the 41 primary tasks have now been read (plan D4 (d)); a later change
+  motivated by them makes those tasks tuned.
+- In 65 of 106 end-to-end runs a submission was refused only because it
+  named a selected file by its catalogue path instead of its `/data` mount;
+  this protocol cost is part of the extra steps and time above. It is fixed
+  since (either path form is accepted), so a fixed end-to-end condition
+  needs new passes; the decided comparison describes the condition as run.
 - These figures describe this agent with this local model. They are not
   comparable to published KramaBench scores of other systems, which use
   different models and judged scoring.
