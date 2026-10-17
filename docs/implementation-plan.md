@@ -2107,11 +2107,17 @@ causal retrieval cost. Keep the holdout sealed until D5.
     (growth on real containers, the 715-member group) — written, not yet run.
   - **Registered criteria** (evaluation plan, "End to end"), fixed
     2026-10-16 before any end-to-end model run: paired strict accuracy on
-    the 41 untuned tasks; retained if no worse than −10 points and median
-    wall time at most 1.25× `given_files`.
+    the 41 untuned tasks, two passes per condition averaged per task;
+    retained if the interval's lower bound is above −10 points and median
+    wall time is at most 1.25× `given_files`; worse if its upper bound is
+    below −10. Amended the same day, still before any end-to-end run: the
+    first version judged "retained" on the point estimate alone.
   - **Not done.** The Docker tests; a smoke run of `end_to_end` on the
-    model; the development pass. The pairing baseline, `given_files` on
-    0.40.4 (`0404-dev-given_files`), started 2026-10-16.
+    model; two development passes of `end_to_end` and a second of
+    `given_files` (about 3.5 h each for `given_files`; `end_to_end` not yet
+    timed); a pooled two-batch `compare` (D3 averaged its passes with a
+    one-off script). The first `given_files` pass on 0.40.4
+    (`0404-dev-given_files`) started 2026-10-16.
 
 ## D5 — Focused ablations and final evaluation
 
