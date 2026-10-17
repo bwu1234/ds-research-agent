@@ -46,6 +46,36 @@ flowchart TD
 | Verifier | Rerun the final program, audit data-file reads, and compare the value | Same sandbox runner, fresh instance |
 | Evaluation harness | Splits, conditions, scoring, reports | Local deterministic KramaBench variant; optional judged comparison |
 
+## Viewing runs
+
+The run viewer serves the ledger as web pages on this machine:
+
+```bash
+uv run python -m eval.kramabench.run --config config/local.yaml serve   # http://127.0.0.1:8765/
+```
+
+- `--port N` picks another port, for example when another local tool already
+  uses 8765. Ctrl-C stops the viewer.
+- `--unseal-holdout` shows holdout batches, runs, and tasks. They are hidden
+  otherwise; this is for D5 only, like `run --tasks holdout`.
+- `--config` selects the ledger (`eval.ledger_path`); every current config
+  points at the same one, `data/runs/ledger.sqlite3`.
+
+Pages, each linked from the one before:
+
+| Page | Shows |
+|---|---|
+| Batches (`/`) | Every batch, with condition, think level, Ollama version, and headline scores; sortable and filterable |
+| Batch (`/batch`) | The batch summary, then one row per run with its score, stop reason, and failure label |
+| Run (`/run`) | One run's trace: each model step, its tool calls, the programs they ran with output and file reads, then the submission, score, and gold answer |
+| Step (`/step`) | One model request and response as recorded JSON, with the prompt text it became, approximately (see the plan's Deployment entries) |
+| Task (`/task`) | One task across every batch that ran it |
+| Compare (`/compare`) | Two batches paired per task, with the same numbers as the `compare` command |
+
+The viewer opens the ledger read-only, so it can stay open while a batch is
+writing; reload a page to see new runs. It quotes benchmark data and gold
+answers, so it listens on 127.0.0.1 only and must not be exposed or hosted.
+
 ## Agent tools
 
 Tools as designed below. Implemented so far: `run_python` (code only, over
