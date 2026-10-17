@@ -119,6 +119,9 @@ Indexing is a separate job.
 6. [MCP integration](docs/mcp-integration.md): current service contract and
    configuration recipe.
 7. [Changes needed in rag-toolkit](docs/rag-toolkit-changes.md).
+8. [Viewing runs](docs/architecture.md#viewing-runs): a local web viewer over
+   the run ledger (`uv run python -m eval.kramabench.run --config
+   config/local.yaml serve`).
 
 ## Next
 
