@@ -43,9 +43,10 @@ comparisons, with numbers from the report functions.
 D4 is in progress: the `end_to_end` condition
 (`ds_research_agent/agent/end_to_end.py`, `eval/kramabench/end_to_end.py`)
 seeds the discovered set with one single-shot search, selects IDs in
-`run_python` (mounts grow by restarting the kernel), and is checked offline;
-it has not run on the model; its comparison criteria are registered in
-`docs/evaluation-plan.md` (D4 progress (a)). rag-toolkit's pooled (unfiltered) search is
+`run_python` (mounts grow by restarting the kernel); two development passes
+per condition ran at `55037ab`, and the registered comparison is decided
+(D4 progress (c)): inconclusive under the rule, end to end worse than
+given files (−14.6 strict, interval below 0) at 2× the median task time. rag-toolkit's pooled (unfiltered) search is
 not deterministic across runs; domain-filtered search is.
 rag-toolkit is pinned at `0f6eb38`. The harness refuses an Ollama version listed in
 `model.refuse_server_versions` (0.40.0 to 0.40.3 crash on prefix-cache reuse),
@@ -102,7 +103,7 @@ uv run python -m eval.kramabench.discovery_paired --pair <a.json> <b.json> --out
 # D2 agentic discovery (local model + rag-toolkit server; catalogue v3m3, groups of 3+)
 uv run python -m eval.kramabench.run --config config/local.kramabench-v3m3.yaml run --condition discovery_agent --tasks smoke --think off
 uv run python -m eval.kramabench.run --config config/local.kramabench-v3m3.yaml report --batch <id> --out data/measurements/discovery/agent-<id>.json   # rows for discovery_paired
-# D4 end to end (local model + rag-toolkit server + Docker; needs the end_to_end config section; not yet run)
+# D4 end to end (local model + rag-toolkit server + Docker; needs the end_to_end config section)
 uv run python -m eval.kramabench.run --config config/local.kramabench-v3m3.yaml run --condition end_to_end --tasks smoke --think off
 # KramaBench at the pinned commit, split into agent-visible and evaluator stores
 uv run python -m eval.kramabench.fetch --config config/local.yaml fetch   # or verify

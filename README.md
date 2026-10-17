@@ -19,14 +19,14 @@ intervals include zero.
 | D0 Scaffold: config, model client, MCP retrieval adapter, dataset-card profiler | Done |
 | D1 Evaluation harness: deterministic scorer, frozen split, SQLite run ledger, replay, baselines | Done |
 | D3 Sandbox and given-files analysis: restricted container, read audit, persistent kernel, agent loop, rerun verifier, comparator | Done |
-| D2 Catalogue expansion and discovery: cards for 1,741 of 1,742 files and retrieval-only baselines done; group cards (profiler v3) and group-level retrieval done; group cards and agentic discovery measured; D4 end to end next | In progress |
-| D4 End to end: search the catalogue, then analyse, with provenance | Planned |
+| D2 Catalogue expansion and discovery: cards for 1,741 of 1,742 files and retrieval-only baselines done; group cards (profiler v3) and group-level retrieval done; group cards and agentic discovery measured | In progress |
+| D4 End to end: search the catalogue, then analyse, with provenance; built, two development passes run, registered comparison decided | In progress |
 | D5 Ablations and sealed-holdout evaluation | Planned |
 
-Today the agent works on **given files**: the task's input files are mounted
-read-only in the sandbox. Finding the files by searching a catalogue
-([rag-toolkit](https://github.com/bwu1234/rag-toolkit) over MCP) is built at
-the adapter level but not yet part of the agent's evaluated runs.
+The agent runs in two modes. With **given files**, the task's input files
+are mounted read-only in the sandbox. **End to end**, it searches a catalogue
+([rag-toolkit](https://github.com/bwu1234/rag-toolkit) over MCP) and mounts
+only the files it selects from the results.
 
 ## Results
 
@@ -51,6 +51,14 @@ every input file of a task in its top 10 for 75% of tasks. An agent that
 searches, reads cards, and chooses files completes 70% of sets, choosing a
 median of 2 files at 0.79 precision in about 2 minutes per task; the
 registered difference, −5.7 points (−20.8 to +7.5), is inconclusive.
+
+End to end (D4, two passes per condition on Ollama 0.40.4): searching for
+the files and then analysing them scores 40.2% strict against 54.9% for
+given files on the same run, **−14.6 points (−28.1 to −1.2)**, at twice the
+median time per task. Under the registered rule that is inconclusive: worse
+than given files, but not shown to be more than 10 points worse. The search
+results contain every needed file for 75% of tasks; the agent's selection is
+complete for 55%.
 
 Development tasks only: the holdout stays sealed until D5. Setup, all-task
 figures, runtime limits, failure analysis, and limitations are in
@@ -108,8 +116,9 @@ Indexing is a separate job.
 D2 has carded every benchmark file, grouped file families, and measured
 discovery: single-shot search and an agentic searcher are not distinguishable
 on complete sets (see Results). Astronomy, whose tasks need parts of several
-large families, remains the weak domain. D4 runs end to end next: search the
-catalogue for the input files, then analyse them, with provenance. D5 runs focused ablations and the sealed-holdout
+large families, remains the weak domain. D4 has run end to end and costs
+accuracy against given files, mostly in choosing files the search already
+found. D5 runs focused ablations and the sealed-holdout
 evaluation, and the first release ends with a write-up and a synthetic
 provenance demo.
 

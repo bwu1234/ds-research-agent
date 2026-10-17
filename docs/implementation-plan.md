@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); profiler v3 with group cards and group-level retrieval 2026-10-15, see D2 progress (c); agentic-discovery condition built and its registered comparison decided (inconclusive) 2026-10-15, see D2 progress (d) and (e)); D4 in progress (the `end_to_end` condition built and checked offline, and its comparison criteria registered, 2026-10-16, see D4 progress (a)); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); profiler v3 with group cards and group-level retrieval 2026-10-15, see D2 progress (c); agentic-discovery condition built and its registered comparison decided (inconclusive) 2026-10-15, see D2 progress (d) and (e)); D4 in progress (the `end_to_end` condition built and checked offline, and its comparison criteria registered, 2026-10-16, see D4 progress (a); two development passes per condition run and the registered comparison decided 2026-10-17: inconclusive under the rule, end to end worse than given files by −14.6 strict points (−28.1 to −1.2) at 2.0× the median task time, see D4 progress (b) and (c)); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -2138,9 +2138,8 @@ causal retrieval cost. Keep the holdout sealed until D5.
     member paths, and the model recovered with `*NewYork*` a turn later.
   - **Development passes**, all from a clean checkout at `55037ab`
     (the PR #34 merge), Ollama 0.40.4, think off, in this order:
-    `d4-dev-given_files-1` (done: 53 runs, strict 60.4%, answer score
-    0.659), `d4-dev-end_to_end-1`, `d4-dev-given_files-2`,
-    `d4-dev-end_to_end-2`. The `end_to_end` batches use
+    `d4-dev-given_files-1`, `d4-dev-end_to_end-1`, `d4-dev-given_files-2`,
+    `d4-dev-end_to_end-2` (results in (c)). The `end_to_end` batches use
     `config/local.kramabench-v3m3.yaml` with the `end_to_end` section; its
     model, agent, sandbox, eval, and benchmark sections equal
     `config/local.yaml`'s.
@@ -2149,6 +2148,57 @@ causal retrieval cost. Keep the holdout sealed until D5.
     registered rule (`report.d4_decision`, constants fixed in code). It
     reproduces D3 (m)'s one-off two-pass result exactly (`given_files`
     minus `codeagent`, untuned: +8.5 [−3.7, +20.7]).
+
+- **(c) Registered comparison decided, 2026-10-17: inconclusive under the
+  rule, and end to end is worse than given files.** The four passes ran
+  back to back 2026-10-17 00:20–15:08 EDT, each 53 of 53 runs; all four
+  replay with 0 differences. Ollama logged 2,530 `/api/chat` requests in that
+  window, equal to the ledger's 2,530 model steps; the only other requests
+  were the seed searches' `/api/embed` and three app status checks, so no
+  foreign client shared the model. Three chat requests returned HTTP 500 and
+  are recorded as model errors in their runs.
+
+  | Batch | Strict, all 53 | Answer score | Verified success | Submitted | Reproduced | Access verified | Budget stops | Median wall |
+  |---|---|---|---|---|---|---|---|---|
+  | `d4-dev-given_files-1` | 60.4% | 0.659 | 35.8% | 51 | 44 | 35 | 2 | 105 s |
+  | `d4-dev-end_to_end-1` | 43.4% | 0.511 | 34.0% | 46 | 41 | 38 | 7 | 255 s |
+  | `d4-dev-given_files-2` | 50.9% | 0.583 | 39.6% | 49 | 46 | 38 | 4 | 136 s |
+  | `d4-dev-end_to_end-2` | 41.5% | 0.492 | 32.1% | 45 | 40 | 38 | 8 | 233 s |
+
+  - **Registered rule** (`compare … --subset untuned --rule d4`, passes
+    pooled per task): strict `given_files` 54.9%, `end_to_end` 40.2%,
+    difference **−14.6 (−28.1 to −1.2)**; median task wall 123 s vs 252 s,
+    ratio **2.04**. Decision: **inconclusive**. Not retained on either
+    count (lower bound below −10, wall ratio above 1.25); not "worse"
+    because the upper bound, −1.2, is above −10. The whole interval is below
+    0, so end to end is worse than given files; what is not shown is a loss
+    larger than the 10-point margin. Report it that way, not as a tie.
+    Secondary: answer score −13.0 (−26.1 to −0.3); all 53 tasks, strict
+    −13.2 (−26.4 to −0.9), wall ratio 2.07.
+  - **Where the loss comes from** (`agent.discovery`, all 53, per pass):
+    the seed search held every gold file for 75.5% of tasks in both passes
+    (the analysis ceiling), but the agent's final selection held the
+    complete set for 54.7% (recall 0.72, precision 0.70, 2.2 selections and
+    1.6–1.7 kernel sessions per run). No manifest mismatches, no empty
+    seeds; 8 and 11 selections refused. Budget stops rise from 2–4 to 7–8,
+    all `max_steps`. Verified success is close between conditions (34.0%
+    and 32.1% vs 35.8% and 39.6%): end-to-end runs that submit pass the
+    access check as often, so the gap is in answers, not provenance. Not
+    yet measured: strict accuracy split by whether the selection was
+    complete, and failure labels (all 61 failed end-to-end runs are
+    unlabelled).
+  - **Run to run.** `given_files` moved from 60.4% to 50.9% between passes
+    on the same commit, config, and server, a larger swing than D3 (m)'s;
+    `end_to_end` moved 43.4% to 41.5%. This is why the rule pools two
+    passes.
+  - **What it settles.** At this budget and with this seed, single-shot
+    discovery plus ID selection costs accuracy and doubles task time
+    relative to labelled inputs. The extra time is model steps: median 14–16
+    model requests per run against 8–9, and median prompt tokens per run
+    114k–134k against 31k–35k; the seed search takes a median 2.2–2.5 s.
+    The 1.25× limit was registered
+    before the runs and stays; whether it was too tight is a write-up
+    question, not a reason to re-decide.
 
 ## D5 — Focused ablations and final evaluation
 
