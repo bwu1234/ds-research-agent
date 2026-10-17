@@ -3,8 +3,8 @@
 Current results, kept up to date as comparisons land. The dated evidence
 behind each figure (batches, commits, replay checks, decisions) is in
 [implementation-plan.md](implementation-plan.md): D1 progress for the
-baselines, D3 progress (g) to (n) for the agent comparison, and D2 progress
-(a) to (e) for discovery. When a new
+baselines, D3 progress (g) to (n) for the agent comparison, D2 progress
+(a) to (e) for discovery, and D4 progress (c) for end to end. When a new
 comparison is decided there, update this page and the README headline in the
 same change.
 
@@ -121,6 +121,38 @@ against v2, recall@10 +0.145 (+0.065 to +0.226). Astronomy stays weakest
 (unfiltered) search is not deterministic across runs; the domain-filtered
 search used here is.
 
+## End to end (D4), Ollama 0.40.4
+
+The `end_to_end` condition: one single-shot search (collapsed, top 10) seeds
+the files the agent may use; it reads cards and selects files by catalogue ID
+inside `run_python`, and only selected files are mounted. Everything else
+matches `given_files`, which ran beside it. Two passes per condition at one
+commit, pooled per task; criteria registered in plan entry D4 (a) before any
+end-to-end run.
+
+| | `given_files` | `end_to_end` | Difference (95% interval) |
+|---|---|---|---|
+| Strict accuracy, 41 primary | 54.9% | 40.2% | **−14.6** (−28.1 to −1.2) |
+| Strict accuracy, all 53 | 55.7% | 42.5% | −13.2 (−26.4 to −0.9) |
+| Answer score, 41 primary | 0.610 | 0.480 | −13.0 (−26.1 to −0.3) |
+| Median time per task, 41 primary | 2.1 min | 4.2 min | 2.0× |
+| Verified success, all 53, per pass | 35.8%, 39.6% | 34.0%, 32.1% | — |
+
+Registered rule: retained if the lower bound is above −10 and median time is
+at most 1.25×; worse if the upper bound is below −10. Decision:
+**inconclusive** under that rule. The whole interval is below zero, so end to
+end is **worse than given files**; what is not shown is a loss larger than 10
+points. It also takes twice as long, so it could not have been retained at
+any accuracy.
+
+The seed search contained every needed file for 75% of tasks, but the
+agent's final selection was complete for 55% (recall 0.72, precision 0.70).
+End-to-end runs use more steps (median 14–16 model requests against 8–9)
+and hit the step budget more often (7–8 of 53 against 2–4). Verified success
+is close between conditions: when end-to-end runs submit, their file access
+checks out as often. `given_files` itself moved from 60.4% to 50.9% strict
+(all 53) between its two passes on the same setup.
+
 ## Limitations
 
 - Development tasks only; no holdout result exists yet.
@@ -132,9 +164,10 @@ search used here is.
   spans two commits, documented in plan entry D3 (j).
 - A third of inlined-files runs hit the output cap, so that baseline is a
   floor for what the model could do with more tokens.
-- The analysis results use given files: the analysis agent has not yet
-  searched the catalogue itself. D2 measures discovery on its own (one pass
-  of the agentic searcher); end-to-end discovery plus analysis is D4.
+- The D1 to D3 analysis results use given files. End to end (D4) has one
+  configuration: single-shot seed search, 10 cards, the given-files step
+  budget. Its failed runs are not yet labelled, and accuracy has not been
+  split by whether the selection was complete.
 - These figures describe this agent with this local model. They are not
   comparable to published KramaBench scores of other systems, which use
   different models and judged scoring.

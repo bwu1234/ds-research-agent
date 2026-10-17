@@ -155,10 +155,16 @@ def _harness(tmp_path: Path) -> tuple[Settings, Harness]:
     return s, Harness(s, s.model, Ledger(s.eval.ledger_path), split, tasks, "rev-test")
 
 
-def _run(h: Harness, condition: str, keys: tuple[str, ...], behaviour: dict[str, str]) -> str:
+def _run(
+    h: Harness,
+    condition: str,
+    keys: tuple[str, ...],
+    behaviour: dict[str, str],
+    batch_id: str | None = None,
+) -> str:
     batch = new_batch(
         h.settings, h.model, h.split, condition=condition, task_set="dev",
-        keys=keys, repeats=1, batch_id=f"{condition}-test",
+        keys=keys, repeats=1, batch_id=batch_id or f"{condition}-test",
     )  # fmt: skip
     h.ledger.add_batch(batch)
     fake = FakeClient(h.tasks, behaviour)
@@ -225,6 +231,38 @@ def test_replay_refuses_a_changed_request(tmp_path: Path) -> None:
     msgs, _ = build_messages(h, "no_tools", h.tasks[keys[0]])
     with pytest.raises(ReplayMismatch):
         asyncio.run(ReplayClient(other, steps).chat(msgs))
+
+
+def test_pooled_compare_averages_passes_per_task(tmp_path: Path) -> None:
+    _, h = _harness(tmp_path)
+    keys = h.split.dev
+    wrong = {k: "prose" for k in keys}
+    base = h.ledger.batch(_run(h, "no_tools", keys, wrong))
+    # Two passes of the other side: right everywhere, then wrong everywhere.
+    right = h.ledger.batch(_run(h, "inline", keys, {}, "inline-1"))
+    miss = h.ledger.batch(_run(h, "inline", keys, wrong, "inline-2"))
+    out = report.compare(h.ledger, [base], [right, miss], h.tasks, 200, 0)
+    assert out["other"] == ["inline-1", "inline-2"] and out["base"] == "no_tools-test"
+    assert out["strict"]["other"] == 0.5 and out["strict"]["diff"] == 0.5
+    assert out["strict"]["diff_ci95"] == [0.5, 0.5]
+    assert set(out["median_task_wall_s"]) == {"base", "other", "ratio"}
+    single = report.compare(h.ledger, base, right, h.tasks, 200, 0)
+    assert single["other"] == "inline-1" and single["strict"]["diff"] == 1.0
+
+
+@pytest.mark.parametrize(
+    ("ci", "ratio", "decision"),
+    [
+        ((-0.05, 0.10), 1.2, "retained"),
+        ((-0.05, 0.10), 1.3, "inconclusive"),  # within the margin, too slow
+        ((-0.12, 0.05), 1.0, "inconclusive"),  # the interval crosses the margin
+        ((-0.30, -0.11), 1.0, "worse"),
+        ((-0.30, -0.11), 2.0, "worse"),
+    ],
+)
+def test_d4_rule_uses_the_interval(ci: tuple[float, float], ratio: float, decision: str) -> None:
+    cmp = {"strict": {"diff_ci95": list(ci)}, "median_task_wall_s": {"ratio": ratio}}
+    assert report.d4_decision(cmp)["decision"] == decision
 
 
 def test_missing_runs_count_as_zero_and_paired_compare(tmp_path: Path) -> None:
