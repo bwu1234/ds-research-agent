@@ -186,6 +186,8 @@ scores separately from verified success and record limitations.
 - `docs/architecture.md`: components, tools, sandbox requirements, layout.
 - `docs/evaluation-plan.md`: benchmarks, conditions, metrics, splits.
 - `docs/data-and-provenance.md`: cards, run records, provenance contract.
+- `docs/opentelemetry-plan.md`: proposed span contract, local OTLP export,
+  delivery stages, and acceptance gates; not implemented.
 - `docs/mcp-integration.md`: current service contract and integration recipe.
 - `docs/rag-toolkit-changes.md`: upstream work and ownership.
 

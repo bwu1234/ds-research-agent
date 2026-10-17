@@ -5,6 +5,11 @@ acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
 
+Supporting observability proposal (2026-10-17):
+[OpenTelemetry tracing plan](opentelemetry-plan.md). The three increments cover
+span capture, local OTLP export, and coverage/overhead validation. This is
+planned work alongside D5; no OpenTelemetry support is implemented yet.
+
 Success means a measured agent, a reproducible evaluation, and a write-up
 that reports results and limitations. Product adoption is not the goal.
 
