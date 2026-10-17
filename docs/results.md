@@ -4,7 +4,7 @@ Current results, kept up to date as comparisons land. The dated evidence
 behind each figure (batches, commits, replay checks, decisions) is in
 [implementation-plan.md](implementation-plan.md): D1 progress for the
 baselines, D3 progress (g) to (n) for the agent comparison, D2 progress
-(a) to (e) for discovery, and D4 progress (c) for end to end. When a new
+(a) to (e) for discovery, and D4 progress (c) to (f) for end to end. When a new
 comparison is decided there, update this page and the README headline in the
 same change.
 

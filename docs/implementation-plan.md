@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); profiler v3 with group cards and group-level retrieval 2026-10-15, see D2 progress (c); agentic-discovery condition built and its registered comparison decided (inconclusive) 2026-10-15, see D2 progress (d) and (e)); D4 in progress (the `end_to_end` condition built and checked offline, and its comparison criteria registered, 2026-10-16, see D4 progress (a); two development passes per condition run and the registered comparison decided 2026-10-17: inconclusive under the rule, end to end worse than given files by −14.6 strict points (−28.1 to −1.2) at 2.0× the median task time, see D4 progress (b) and (c); its 61 failed runs labelled 2026-10-17, see D4 progress (d); provenance, verification failures, and verifier cost measured, see D4 progress (e)); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); profiler v3 with group cards and group-level retrieval 2026-10-15, see D2 progress (c); agentic-discovery condition built and its registered comparison decided (inconclusive) 2026-10-15, see D2 progress (d) and (e)); D4 done (2026-10-17, see D4 progress (f); the `end_to_end` condition built and checked offline, and its comparison criteria registered, 2026-10-16, see D4 progress (a); two development passes per condition run and the registered comparison decided 2026-10-17: inconclusive under the rule, end to end worse than given files by −14.6 strict points (−28.1 to −1.2) at 2.0× the median task time, see D4 progress (b) and (c); its 61 failed runs labelled 2026-10-17, see D4 progress (d); provenance, verification failures, and verifier cost measured, see D4 progress (e)); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -2352,6 +2352,27 @@ causal retrieval cost. Keep the holdout sealed until D5.
     (`test_wrong_calculation_still_reproduces`). Only the final program is
     audited; exploration cells are ledger records, not provenance. Audit
     completeness is not evidence that anyone needs the audit.
+
+- **(f) D4 closed, 2026-10-17.**
+  - **Acceptance.** End-to-end and given-files development results on the
+    same 53 tasks with the same model, agent, sandbox, eval, and benchmark
+    settings, two passes each at one commit ((b)); answer score, strict
+    accuracy, observed-access verification, reproduction, and verified
+    success reported separately ((c), (e)); the holdout stayed sealed.
+  - **Gate: contribution of discovery and provenance** ("Remaining evidence
+    gaps"). Discovery does not retain enough analysis success within the
+    registered budget: strict −14.6 (−28.1 to −1.2) on the 41 untuned tasks
+    at 2.04× the median task time, inconclusive under the rule and worse
+    than given files ((c)). The loss is spread over seed misses, choices
+    among found files, and analysis with every file selected ((c), (d)).
+    Provenance is not where the cost is (verifier under 0.4% of run wall),
+    and the access requirements listed in (e) are enforced and tested; what
+    (e) lists as not established stays so.
+  - **Carried to D5.** The D5 baseline is the end-to-end condition with the
+    `files_used` fix of (d), which needs its own two development passes
+    before any D5 comparison; D4's numbers describe the condition as run at
+    `55037ab`. A D5 comparison on the 41 untuned tasks also reports the 15
+    never read ((d)). The 1.25× time limit stays as registered.
 
 ## D5 — Focused ablations and final evaluation
 

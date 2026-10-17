@@ -40,13 +40,19 @@ is inconclusive (D2 progress (e)).
 A local read-only web viewer over the ledger (`eval/kramabench/viewer/`,
 `run serve`) shows batches, per-run traces, tasks across batches, and paired
 comparisons, with numbers from the report functions.
-D4 is in progress: the `end_to_end` condition
+D4 is done (closed 2026-10-17 in D4 progress (f)): the `end_to_end` condition
 (`ds_research_agent/agent/end_to_end.py`, `eval/kramabench/end_to_end.py`)
 seeds the discovered set with one single-shot search, selects IDs in
 `run_python` (mounts grow by restarting the kernel); two development passes
 per condition ran at `55037ab`, and the registered comparison is decided
 (D4 progress (c)): inconclusive under the rule, end to end worse than
-given files (−14.6 strict, interval below 0) at 2× the median task time. rag-toolkit's pooled (unfiltered) search is
+given files (−14.6 strict, interval below 0) at 2× the median task time.
+Its failures are hand-labelled (D4 progress (d); 26 of the 41 untuned tasks
+have now had their gold read), and provenance and verifier cost are measured
+(e). After those passes, an end-to-end submission may name selected files by
+catalogue path (recorded by mount), so end-to-end batches before that fix
+replay only at `55037ab`, and the fixed condition needs its own passes as the
+D5 baseline. rag-toolkit's pooled (unfiltered) search is
 not deterministic across runs; domain-filtered search is.
 rag-toolkit is pinned at `0f6eb38`. The harness refuses an Ollama version listed in
 `model.refuse_server_versions` (0.40.0 to 0.40.3 crash on prefix-cache reuse),
