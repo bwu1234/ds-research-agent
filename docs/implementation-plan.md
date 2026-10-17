@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); profiler v3 with group cards and group-level retrieval 2026-10-15, see D2 progress (c); agentic-discovery condition built and its registered comparison decided (inconclusive) 2026-10-15, see D2 progress (d) and (e)); D4 in progress (the `end_to_end` condition built and checked offline, and its comparison criteria registered, 2026-10-16, see D4 progress (a); two development passes per condition run and the registered comparison decided 2026-10-17: inconclusive under the rule, end to end worse than given files by −14.6 strict points (−28.1 to −1.2) at 2.0× the median task time, see D4 progress (b) and (c)); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); profiler v3 with group cards and group-level retrieval 2026-10-15, see D2 progress (c); agentic-discovery condition built and its registered comparison decided (inconclusive) 2026-10-15, see D2 progress (d) and (e)); D4 done (2026-10-17, see D4 progress (f); the `end_to_end` condition built and checked offline, and its comparison criteria registered, 2026-10-16, see D4 progress (a); two development passes per condition run and the registered comparison decided 2026-10-17: inconclusive under the rule, end to end worse than given files by −14.6 strict points (−28.1 to −1.2) at 2.0× the median task time, see D4 progress (b) and (c); its 61 failed runs labelled 2026-10-17, see D4 progress (d); provenance, verification failures, and verifier cost measured, see D4 progress (e)); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -2184,8 +2184,7 @@ causal retrieval cost. Keep the holdout sealed until D5.
     all `max_steps`. Verified success is close between conditions (34.0%
     and 32.1% vs 35.8% and 39.6%): end-to-end runs that submit pass the
     access check as often, so the gap is in answers, not provenance. Failure
-    labels are not yet assigned (all 61 failed end-to-end runs are
-    unlabelled).
+    labels: (d).
   - **Split by selection state** (measured 2026-10-17 after the decision;
     diagnostic, not part of the rule; `report.by_selection`, printed by
     pooled `compare` when `--vs` is `end_to_end`). Each end-to-end run is
@@ -2219,6 +2218,161 @@ causal retrieval cost. Keep the holdout sealed until D5.
     The 1.25× limit was registered
     before the runs and stays; whether it was too tight is a write-up
     question, not a reason to re-decide.
+
+- **(d) Failure labels for the end-to-end passes, 2026-10-17** (`taxonomy-v1`,
+  after the decision in (c); diagnostic, they change no score or decision).
+  - **What was read, decided first.** Hand labels mean reading gold answers,
+    and a change motivated by them makes those tasks tuned (D3 (k)). Decided
+    before reading: label every `end_to_end` failure and record which
+    untuned tasks have been read; leave the D4 `given_files` failures at
+    their rule labels, since D3 (k) already has a given-files breakdown.
+    Afterwards 26 of the 41 untuned tasks have had their gold read: the 17
+    of D3 (k) and 9 more here (archeology-hard-7, astronomy-hard-10,
+    environment-hard-8, environment-hard-19, legal-easy-5, legal-easy-21,
+    legal-hard-22, wildfire-easy-3, wildfire-hard-17). Never read: 15
+    (astronomy-hard-11, biomedical-hard-4, biomedical-hard-8,
+    environment-easy-4, environment-easy-5, environment-hard-15,
+    environment-hard-20, legal-easy-9, legal-easy-25, legal-easy-27,
+    legal-hard-7, legal-hard-8, legal-hard-17, wildfire-easy-1,
+    wildfire-easy-8). A D5 comparison on the 41 should also report these 15,
+    and say which tasks motivated any change it tests.
+  - **Rule, fixed before reading.** `discovery_miss` when the selection
+    lacks a gold file and the transcript shows that file was needed; `other`
+    when the needed file is absent from the benchmark repository (as D3 (k));
+    otherwise the analysis category, with any missing gold file named in the
+    note. Diagnosed from transcripts only: unlike some D3 (k) labels, no fix
+    was rerun locally to reproduce a gold value. `show` now prints an
+    end-to-end run's selection state and the gold files missing from its
+    selection and its seed (`report.run_selection`), which the labels need.
+  - **Counts** (both passes, 61 failed runs; 15 `budget_exhausted` by rule,
+    46 by hand), by selection state as in (c):
+
+    | State | `discovery_miss` | `wrong_filter_or_join` | `formatting` | `parse_error` | `other` | `budget_exhausted` | Failed |
+    |---|---|---|---|---|---|---|---|
+    | Whole gold set selected | 0 | 13 | 2 | 2 | 5 | 4 | 26 |
+    | Seed had it, selection incomplete | 8 | 0 | 0 | 0 | 5 | 1 | 14 |
+    | Seed missed a gold file | 7 | 0 | 2 | 0 | 2 | 10 | 21 |
+    | All | 15 | 13 | 4 | 2 | 12 | 15 | 61 |
+
+    On the 41 untuned tasks: 15, 7, 4, 2, 10, 11 (49 failed).
+  - **What they show.** Discovery is the stated cause in 15 of 61 failures
+    (25%): 8 a choice among found files (legal-easy-4, legal-easy-21,
+    legal-hard-22, wildfire-hard-17, each in both passes, where a similar
+    file was picked over the gold one) and 7 seed misses (astronomy-easy-4,
+    astronomy-hard-10 ×2, environment-hard-8 ×2, wildfire-hard-14 ×2, where
+    the model said the data was unavailable and used a proxy or typed values
+    from memory). Most failures with the whole gold set selected repeat D3
+    (k)'s given-files errors on the same tasks (capitals filter, unexcluded
+    `Case_excluded` rows, the "a or b" rank parse, the bibliography count,
+    the MSA comma, the list-shaped string answer). Not every incomplete
+    selection caused its failure: wildfire-easy-9 used `noaa_wildfires`,
+    which has the labelled file's rows and gives D3's value (the gold
+    boundary of D3 (k)); wildfire-hard-19 and -21 need files absent from the
+    repository; archeology-hard-12 gives D3's 449. Of the seed misses, 10 of
+    21 ended at the step budget and were not read further. New since D3:
+    legal-easy-5's dollar parse (`re.search(r'(\d+)')` stops at the first
+    comma) and archeology-hard-7's bounding box for "within 0.1 degrees".
+  - **A protocol cost, visible without the gold.** 65 of the 106
+    end-to-end runs had a `submit_answer` refused only because `files_used`
+    named a selected file by its catalogue path
+    (`archeology/input/roman_cities.csv`) rather than its mount
+    (`/data/archeology/input/roman_cities.csv`), against 2 of 106
+    `given_files` runs. `check_submission` compares exact strings with the
+    mounted paths, the seed list and cards give catalogue paths, and the
+    error says the file was "not selected in this run", so the model often
+    re-selected a file already mounted before resubmitting. Each costs at
+    least one model request; no run ended at the step budget after one. It is
+    part of the step and time gap in (c), size not separated. The 2
+    `given_files` refusals were real (a glob and directories), not this.
+  - **Fixed, 2026-10-17, after the passes.** An end-to-end submission may
+    name a selected file by its catalogue path; the loop maps it to its
+    mount (`FileAccess.canonical`) before the check, so the submission is
+    recorded and audited by `/data` path, and a file not selected is still
+    refused. The prompt is unchanged (prefix hash as before); `given_files`
+    is untouched (`d4-dev-given_files-1` replays with 0 differences on the
+    fix). This changes the condition, so (c)'s decision stands as recorded at
+    `55037ab`, and the fixed condition needs its own passes before it serves
+    as the D5 baseline. As with D3's protocol fixes, the end-to-end batches
+    recorded before it no longer replay on the new code (they replay at
+    `55037ab`); a replay attempt stopped at `ReplayMismatch` and left
+    `d4-dev-end_to_end-1-replay-2026-10-17T200111` (3 of 53 runs) in the
+    local ledger, not used.
+  - **Effort.** Rendered and labelled by Claude Code in one session, with no
+    person reviewing each label; the minutes are not comparable to a
+    person's review and are not logged as operator effort.
+
+- **(e) Provenance, verification failures, and verifier cost, 2026-10-17**
+  (the four passes of (b), measured from the ledger; no model run). The
+  report's agent block now also gives `audit_complete`,
+  `verification_details` (why verification failed, one reason per kind per
+  run), and the verifier's wall time (`verifier_wall_s`, its share of run
+  wall): the fresh reruns of each submitted program, submit checks returned
+  for a fix included, container start included.
+
+  | Batch | Submitted | Audit complete | Reproduced | Access verified | Strict | Strict, not verified | Verifier median / p90 | Share of run wall |
+  |---|---|---|---|---|---|---|---|---|
+  | `d4-dev-given_files-1` | 51 | 51 | 44 | 35 | 32 | 13 | 0.65 / 1.35 s | 0.35% |
+  | `d4-dev-given_files-2` | 49 | 49 | 46 | 38 | 27 | 6 | 0.69 / 1.55 s | 0.30% |
+  | `d4-dev-end_to_end-1` | 46 | 46 | 41 | 38 | 23 | 5 | 0.54 / 1.12 s | 0.20% |
+  | `d4-dev-end_to_end-2` | 45 | 45 | 40 | 38 | 22 | 5 | 0.64 / 1.31 s | 0.23% |
+
+  - **Verifier cost** is under 2.1 s per submitted run and under 0.4% of run
+    wall in every pass, so provenance is not where the time goes; the model
+    turns spent fixing a returned submission are not counted here (they
+    are model steps).
+  - **Why verification fails** (submitted runs; given files 1, 2, end to
+    end 1, 2): the rerun read no data file, values typed into the program,
+    8, 5, 5, 4; observed reads differ from `files_used`, 8, 6, 3, 3; the
+    rerun's answer differs from the submitted one, 6, 2, 3, 3; the rerun
+    exited non-zero, 1, 1, 2, 2. No audit was incomplete. Of the 104
+    strictly correct runs, 29 are not verified, for the same reasons; so the
+    gap between strict accuracy and verified success is the checks refusing
+    unsupported claims, not the verifier failing.
+  - **What the system demonstrably enforces**, with the evidence: (1) a run's
+    container holds only its labelled or selected inputs, read-only
+    (`test_only_selected_inputs_exist`,
+    `test_growth_mounts_only_the_selection_and_restarts`); (2) only IDs a
+    search returned can be selected (offline tests; 8 and 11 selections
+    refused in the passes, (c)); (3) each newly selected file matches its
+    manifest hash or the batch stops (`test_a_changed_file_stops_the_run`; no
+    mismatch in the passes); (4) no network, no host environment or
+    capabilities, writes only to scratch, and time, CPU, memory, process, and
+    output limits (the `-m docker` suite, 51 passing on this branch
+    2026-10-17); (5) the read audit fails closed: an incomplete trace or a
+    refused untraced clone leaves access unverified, and it was complete for
+    all 191 submitted runs; (6) access is verified only when the fresh
+    rerun's observed reads equal `files_used`, and `files_used` must name
+    selected files; (7) answer keys live in the evaluator store, split from
+    the agent-visible one at fetch, which refuses overlapping stores
+    (`test_split_by_visibility`, `test_overlapping_stores_are_refused`).
+  - **What it does not establish.** Observation is per open, not per byte:
+    a program that reads the file and prints a typed-in value passes the
+    access check (`test_hard_coded_answer_that_reads_the_file_passes`), and
+    reproduction says nothing about correctness
+    (`test_wrong_calculation_still_reproduces`). Only the final program is
+    audited; exploration cells are ledger records, not provenance. Audit
+    completeness is not evidence that anyone needs the audit.
+
+- **(f) D4 closed, 2026-10-17.**
+  - **Acceptance.** End-to-end and given-files development results on the
+    same 53 tasks with the same model, agent, sandbox, eval, and benchmark
+    settings, two passes each at one commit ((b)); answer score, strict
+    accuracy, observed-access verification, reproduction, and verified
+    success reported separately ((c), (e)); the holdout stayed sealed.
+  - **Gate: contribution of discovery and provenance** ("Remaining evidence
+    gaps"). Discovery does not retain enough analysis success within the
+    registered budget: strict −14.6 (−28.1 to −1.2) on the 41 untuned tasks
+    at 2.04× the median task time, inconclusive under the rule and worse
+    than given files ((c)). The loss is spread over seed misses, choices
+    among found files, and analysis with every file selected ((c), (d)).
+    Provenance is not where the cost is (verifier under 0.4% of run wall),
+    and the access requirements listed in (e) are enforced and tested; what
+    (e) lists as not established stays so.
+  - **Carried to D5.** The D5 baseline is the end-to-end condition with the
+    `files_used` fix of (d), which needs its own two development passes
+    before any D5 comparison; D4's numbers describe the condition as run at
+    `55037ab`. A D5 comparison on the 41 untuned tasks also reports the 15
+    never read ((d)). The 1.25× time limit stays as registered.
 
 ## D5 — Focused ablations and final evaluation
 

@@ -19,7 +19,8 @@ its client); programs, the submission, and the verification go to the
 The end-to-end condition (D4) runs the same loop with its own tools and a
 ``FileAccess``: ``read_card`` reads a discovered card, a ``run_python`` call
 may select discovered IDs before its code runs (growing the mounts, which
-restarts the kernel), and ``files_used`` is checked against the selection.
+restarts the kernel), and ``files_used`` is checked against the selection
+(a selected file may be named by its catalogue path; it is recorded by mount).
 """
 
 from __future__ import annotations
@@ -139,6 +140,11 @@ class FileAccess(Protocol):
     @property
     def files(self) -> list[str]:
         """Container paths selected so far, the submission's allowed files."""
+        ...
+
+    def canonical(self, path: str) -> str:
+        """The container path of a selected file named another way (its
+        catalogue path, as the prompt lists it); otherwise ``path``."""
         ...
 
     def read_card(self, args: Mapping[str, Any]) -> str: ...
@@ -455,13 +461,15 @@ class _Run:
                     elif call.name == "read_card" and self.access is not None:
                         replies.append(_tool(call.name, self.access.read_card(call.arguments)))
                     else:  # submit_answer; the repair policy rejects unknown tools
-                        problems = (
-                            check_submission(call.arguments, self.files)
-                            if self.access is None
-                            else check_submission(
-                                call.arguments, self.access.files, self.access.allowed
-                            )
-                        )
+                        args: dict[str, Any] = dict(call.arguments)
+                        if self.access is None:
+                            problems = check_submission(args, self.files)
+                        else:
+                            # Recorded and audited by container path, however named.
+                            used = [self.access.canonical(str(f)) for f in args["files_used"]]
+                            args = args | {"files_used": list(dict.fromkeys(used))}
+                            allowed = self.access.allowed
+                            problems = check_submission(args, self.access.files, allowed)
                         if problems:
                             replies.append(
                                 _tool(
@@ -471,7 +479,6 @@ class _Run:
                                 )
                             )
                             continue
-                        args = call.arguments
                         sub = Submission(
                             answer=args["answer"],
                             files_used=tuple(args["files_used"]),

@@ -4,7 +4,7 @@ Current results, kept up to date as comparisons land. The dated evidence
 behind each figure (batches, commits, replay checks, decisions) is in
 [implementation-plan.md](implementation-plan.md): D1 progress for the
 baselines, D3 progress (g) to (n) for the agent comparison, D2 progress
-(a) to (e) for discovery, and D4 progress (c) for end to end. When a new
+(a) to (e) for discovery, and D4 progress (c) to (f) for end to end. When a new
 comparison is decided there, update this page and the README headline in the
 same change.
 
@@ -163,11 +163,31 @@ discovery steps also cost the analysis; tasks the search misses are the
 hardest ones for given files too. Each state holds only 9 to 21 parent
 tasks, so these intervals are wide.
 
+Of the 61 failed end-to-end runs (both passes), discovery is the cause in 15
+(8 a wrong choice among found files, 7 a file the search never returned);
+13 are filter or join errors, mostly the same ones `given_files` makes on
+those tasks; 15 hit the step budget; 12 are other causes, including tasks
+whose needed file is absent from the benchmark and string golds the local
+scorer cannot match.
+
 End-to-end runs use more steps (median 14–16 model requests against 8–9)
 and hit the step budget more often (7–8 of 53 against 2–4). Verified success
 is close between conditions: when end-to-end runs submit, their file access
 checks out as often. `given_files` itself moved from 60.4% to 50.9% strict
 (all 53) between its two passes on the same setup.
+
+## Provenance and the verifier (D4)
+
+Across the four D4 passes, every submitted run's read audit was complete
+(191 of 191). Of the 104 strictly correct runs, 29 are not verified: their
+program typed values in instead of reading a file, read files other than
+the ones it claimed, or printed a different answer on the fresh rerun. The
+verifier's reruns take a median 0.5–0.7 s per submitted run, under 0.4% of
+run time. The system enforces that a run sees only its labelled or selected
+files, read-only and hash-checked, with no network, and that verified access
+means the rerun's observed reads equal the files it claimed. It does not show
+that a value came from the data it read: observation is per file open, and
+reproduction is not correctness.
 
 ## Limitations
 
@@ -182,8 +202,14 @@ checks out as often. `given_files` itself moved from 60.4% to 50.9% strict
   floor for what the model could do with more tokens.
 - The D1 to D3 analysis results use given files. End to end (D4) has one
   configuration: single-shot seed search, 10 cards, the given-files step
-  budget. Its failed runs are not yet labelled, and accuracy has not been
-  split by whether the selection was complete.
+  budget. Its failure labels were read next to the gold answers, so 26 of
+  the 41 primary tasks have now been read (plan D4 (d)); a later change
+  motivated by them makes those tasks tuned.
+- In 65 of 106 end-to-end runs a submission was refused only because it
+  named a selected file by its catalogue path instead of its `/data` mount;
+  this protocol cost is part of the extra steps and time above. It is fixed
+  since (either path form is accepted), so a fixed end-to-end condition
+  needs new passes; the decided comparison describes the condition as run.
 - These figures describe this agent with this local model. They are not
   comparable to published KramaBench scores of other systems, which use
   different models and judged scoring.

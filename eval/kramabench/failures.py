@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from typing import Any, Literal, get_args
 
 from ds_research_agent.ledger import FailureLabel, Ledger, Run, utc_now
@@ -111,8 +112,16 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + f"\n[... {len(text) - limit} chars]"
 
 
-def render_run(ledger: Ledger, run: Run, task: Task, limit: int = 3000) -> str:
-    """The run as the model saw it, then cell records, rerun, and verdicts."""
+def render_run(
+    ledger: Ledger,
+    run: Run,
+    task: Task,
+    limit: int = 3000,
+    selection: Mapping[str, Any] | None = None,
+) -> str:
+    """The run as the model saw it, then cell records, rerun, and verdicts.
+    ``selection`` is an end-to-end run's discovery, from the caller (report
+    imports this module, so it cannot be computed here)."""
     discovery = run.condition == "discovery_agent"
     sc = ledger.score(run.run_id, "discovery-v1" if discovery else PROFILE)
     out = [
@@ -130,12 +139,14 @@ def render_run(ledger: Ledger, run: Run, task: Task, limit: int = 3000) -> str:
         out.append(f"chosen ({len(chosen)}): " + ", ".join(sorted(chosen)[:20]))
     else:
         out.append(f"gold (evaluator only): {json.dumps(task.gold.answer)}")
-        out.append(
-            "resolution: "
-            + "; ".join(
-                f"{e['entry']} -> {e['tier']}" for e in run.input_manifest.get("resolution", [])
+        if resolution := run.input_manifest.get("resolution"):
+            out.append(
+                "resolution: " + "; ".join(f"{e['entry']} -> {e['tier']}" for e in resolution)
             )
-        )
+    if selection is not None:
+        # End to end: how far the gold files got (report.run_selection).
+        out.append(f"\n## selection (evaluator only): {selection['state']}")
+        out.extend(f"{k}: {json.dumps(v)}" for k, v in selection.items() if k != "state")
     # Discovery runs also record searches as steps; the transcript is the
     # last model request with its response.
     steps = [st for st in ledger.steps(run.run_id) if st.kind == "model"]

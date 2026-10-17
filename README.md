@@ -10,7 +10,10 @@ code in a sandbox beats pasting the files into the prompt by **+22 points of
 strict accuracy**. Whether this project's custom agent loop beats a general
 code agent (smolagents `CodeAgent` on the same sandbox) is **not yet
 settled**: the custom loop leads in every pass (+5 to +10 points), but the
-intervals include zero.
+intervals include zero. Searching the catalogue for the files first, instead
+of being given them, **costs 14.6 points** (interval −28.1 to −1.2) and
+doubles the time per task; checking each answer's provenance costs under
+0.4% of that time.
 
 ## Status
 
@@ -20,7 +23,7 @@ intervals include zero.
 | D1 Evaluation harness: deterministic scorer, frozen split, SQLite run ledger, replay, baselines | Done |
 | D3 Sandbox and given-files analysis: restricted container, read audit, persistent kernel, agent loop, rerun verifier, comparator | Done |
 | D2 Catalogue expansion and discovery: cards for 1,741 of 1,742 files and retrieval-only baselines done; group cards (profiler v3) and group-level retrieval done; group cards and agentic discovery measured | In progress |
-| D4 End to end: search the catalogue, then analyse, with provenance; built, two development passes run, registered comparison decided | In progress |
+| D4 End to end: search the catalogue, then analyse, with provenance; two development passes per condition, registered comparison decided, failures labelled, provenance measured | Done |
 | D5 Ablations and sealed-holdout evaluation | Planned |
 
 The agent runs in two modes. With **given files**, the task's input files
@@ -60,7 +63,11 @@ than given files, but not shown to be more than 10 points worse. The loss
 splits roughly three ways: tasks whose needed files the search missed
 (about 6 points), tasks where the search found them but the agent did not
 select them all (about 4), and runs that selected every needed file and
-still scored lower than given files on the same tasks (about 5).
+still scored lower than given files on the same tasks (about 5). Every
+submitted run's read audit was complete; verified success is close between
+the two modes (32–34% against 36–40%), and 29 of 104 correct answers are not
+verified because their program did not read, or did not reproduce, what it
+claimed.
 
 Development tasks only: the holdout stays sealed until D5. Setup, all-task
 figures, runtime limits, failure analysis, and limitations are in
@@ -118,10 +125,11 @@ Indexing is a separate job.
 D2 has carded every benchmark file, grouped file families, and measured
 discovery: single-shot search and an agentic searcher are not distinguishable
 on complete sets (see Results). Astronomy, whose tasks need parts of several
-large families, remains the weak domain. D4 has run end to end and costs
+large families, remains the weak domain. D4 is done: end to end costs
 accuracy against given files, split across search misses, incomplete
-selections, and analysis with the right files selected. D5 runs focused ablations and the sealed-holdout
-evaluation, and the first release ends with a write-up and a synthetic
+selections, and analysis with the right files selected. D5 starts with two
+passes of the end-to-end condition with its submission-path fix as the
+baseline, then runs focused ablations and the sealed-holdout evaluation, and the first release ends with a write-up and a synthetic
 provenance demo.
 
 See [CLAUDE.md](CLAUDE.md) for contributor guidance and commands, and

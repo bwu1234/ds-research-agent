@@ -22,6 +22,7 @@ from ds_research_agent.catalogue import Manifest, load_manifest
 from ds_research_agent.ledger import Batch, Ledger, Step
 from eval.kramabench import agent_runs, end_to_end, failures
 from eval.kramabench.baselines import PROGRAM_CONDITIONS
+from eval.kramabench.discovery import gold_files
 from eval.kramabench.scoring import PROFILE
 from eval.kramabench.tasks import Task
 
@@ -209,6 +210,10 @@ def summarise(
         runs = ledger.runs(batch.batch_id)
         agent = agent_runs.summary_extra(ledger, [r.run_id for r in runs])
         fails = failures.counts(ledger, runs, tasks)
+        rerun_s = agent["verifier_wall_s_per_run"]
+        run_s = sum(r.wall_s for r in runs if r.wall_s is not None)
+        agent["verifier_wall_s"] = _dist(rerun_s)
+        agent["verifier_share_of_run_wall"] = round(sum(rerun_s) / run_s, 4) if run_s else None
         if batch.condition == end_to_end.CONDITION:
             agent["discovery"] = end_to_end.summary_extra(
                 ledger, batch, tasks, *_catalogue_of(batch)
@@ -277,6 +282,27 @@ def _selection_state(row: Mapping[str, Any]) -> str:
     if row.get("seed_complete") == 0:
         return "seed_incomplete"
     return "unscored"
+
+
+def run_selection(ledger: Ledger, run_id: str, tasks: dict[str, Task]) -> dict[str, Any]:
+    """One end-to-end run's discovery, for reading a failure: its selection
+    state and metrics, and the gold files missing from its selection and from
+    its seed results (seed left out without the run's own catalogue)."""
+    batch = ledger.batch(run_id.split("/", 1)[0])
+    root, manifest = _catalogue_of(batch)
+    row = end_to_end.selection_rows(ledger, batch, tasks, root, manifest)[run_id]
+    run = next(r for r in ledger.runs(batch.batch_id) if r.run_id == run_id)
+    gold, unresolved = gold_files(tasks[run.task_key], root)
+    selected = set(end_to_end.selected_files(ledger, run_id))
+    out = {"state": _selection_state(row), "gold_unresolved": unresolved} | row
+    out["not_selected"] = [f for f in gold if f not in selected]
+    out["extra_selected"] = sorted(selected - set(gold))
+    if "seed_complete" in row and manifest is not None:
+        k = int((batch.config.get("end_to_end") or {}).get("seed_cards", 0))
+        collapse_groups = bool((batch.config.get("discovery") or {}).get("collapse_groups", True))
+        reach = set(end_to_end.seed_files(ledger, run_id, manifest, k, collapse_groups))
+        out["not_in_seed"] = [f for f in gold if f not in reach]
+    return out
 
 
 def by_selection(

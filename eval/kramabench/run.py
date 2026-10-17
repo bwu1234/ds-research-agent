@@ -678,7 +678,8 @@ def cmd_show(args: argparse.Namespace, settings: Settings) -> int:
     _, tasks = frozen_split(settings)
     ledger = Ledger(settings.eval.ledger_path)
     r = _run(ledger, args.run)
-    print(failures.render_run(ledger, r, tasks[r.task_key], args.limit))
+    sel = report.run_selection(ledger, r.run_id, tasks) if r.condition == "end_to_end" else None
+    print(failures.render_run(ledger, r, tasks[r.task_key], args.limit, sel))
     return 0
 
 

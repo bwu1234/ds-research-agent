@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+from collections import Counter
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -344,8 +345,16 @@ async def run_agent_task(
 
 
 def summary_extra(ledger: Ledger, run_ids: Sequence[str]) -> dict[str, Any]:
-    """Agent-run counts for reports: steps, cells, and verification outcomes."""
+    """Agent-run counts for reports: steps, cells, and verification outcomes.
+
+    The verifier's cost per submitted run is the wall time of its fresh
+    reruns (submit checks returned for a fix, and the final rerun), container
+    start included; ``verification_details`` counts why verification failed,
+    one reason per kind per run."""
     steps, cells, replans, checks, submitted, reproduced, access = [], [], 0, 0, 0, 0, 0
+    audited = 0
+    verifier_s: list[float] = []
+    details: Counter[str] = Counter()
     for rid in run_ids:
         progs = ledger.programs(rid)
         steps.append(sum(s.kind == "model" for s in ledger.steps(rid)))
@@ -356,6 +365,12 @@ def summary_extra(ledger: Ledger, run_ids: Sequence[str]) -> dict[str, Any]:
         submitted += ledger.submission(rid) is not None
         reproduced += bool(v and v.reproduced)
         access += bool(v and v.access_verified)
+        if v is not None:
+            audited += v.audit_complete
+            kinds = ("submit_check", "final_rerun")
+            reruns = [p.wall_s for p in progs if p.kind in kinds and p.wall_s is not None]
+            verifier_s.append(round(sum(reruns), 3))
+            details.update({_detail_kind(d) for d in v.detail})
     return {
         "model_requests_per_run": steps,
         "cells_per_run": cells,
@@ -364,4 +379,15 @@ def summary_extra(ledger: Ledger, run_ids: Sequence[str]) -> dict[str, Any]:
         "submitted": submitted,
         "reproduced": reproduced,
         "access_verified": access,
+        "audit_complete": audited,
+        "verification_details": dict(details.most_common()),
+        "verifier_wall_s_per_run": verifier_s,
     }
+
+
+def _detail_kind(detail: str) -> str:
+    """A verification detail without its run-specific tail (exit code, issues)."""
+    for prefix in ("rerun exited", "read audit incomplete", "rerun failed in the sandbox"):
+        if detail.startswith(prefix):
+            return prefix
+    return detail

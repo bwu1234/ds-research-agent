@@ -192,6 +192,10 @@ class CatalogueAccess:
     def files(self) -> list[str]:
         return [container_path(e) for e in self._sorted()]
 
+    def canonical(self, path: str) -> str:
+        by_catalogue_path = {e.file_path: container_path(e) for e in self._selected.values()}
+        return by_catalogue_path.get(path, path)
+
     def _sorted(self) -> list[CatalogueEntry]:
         return sorted(self._selected.values(), key=lambda e: self._order[e.catalogue_id])
 
