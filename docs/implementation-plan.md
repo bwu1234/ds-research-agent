@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); profiler v3 with group cards and group-level retrieval 2026-10-15, see D2 progress (c); agentic-discovery condition built and its registered comparison decided (inconclusive) 2026-10-15, see D2 progress (d) and (e)); D4 in progress (the `end_to_end` condition built and checked offline, and its comparison criteria registered, 2026-10-16, see D4 progress (a); two development passes per condition run and the registered comparison decided 2026-10-17: inconclusive under the rule, end to end worse than given files by −14.6 strict points (−28.1 to −1.2) at 2.0× the median task time, see D4 progress (b) and (c); its 61 failed runs labelled 2026-10-17, see D4 progress (d)); all other milestones pending. This is a sequence of small deliverables with
+Status: D0 done (2026-10-06); D1 done (2026-10-08); D3 (sandbox, packages, and kernel done 2026-10-09; agent loop, `given_files` condition, failure tooling, the 12-task sample, the protocol fixes from it, and the registered comparison criteria done 2026-10-10; the minimal comparator, smolagents `CodeAgent` on the same sandbox, done 2026-10-11; the paired development comparison run and decided 2026-10-12: P1 continue, P2 inconclusive); D3 done (2026-10-14, see D3 progress (o)); D2 in progress (full catalogue, retrieval-only harness, and single-shot baselines done 2026-10-15, see D2 progress (a); group-card rule and member filters decided 2026-10-15, see D2 progress (b); profiler v3 with group cards and group-level retrieval 2026-10-15, see D2 progress (c); agentic-discovery condition built and its registered comparison decided (inconclusive) 2026-10-15, see D2 progress (d) and (e)); D4 in progress (the `end_to_end` condition built and checked offline, and its comparison criteria registered, 2026-10-16, see D4 progress (a); two development passes per condition run and the registered comparison decided 2026-10-17: inconclusive under the rule, end to end worse than given files by −14.6 strict points (−28.1 to −1.2) at 2.0× the median task time, see D4 progress (b) and (c); its 61 failed runs labelled 2026-10-17, see D4 progress (d); provenance, verification failures, and verifier cost measured, see D4 progress (e)); all other milestones pending. This is a sequence of small deliverables with
 acceptance gates, not an estimate of calendar time. Adopted 2026-10-03.
 
 ## Goal
@@ -2300,6 +2300,58 @@ causal retrieval cost. Keep the holdout sealed until D5.
   - **Effort.** Rendered and labelled by Claude Code in one session, with no
     person reviewing each label; the minutes are not comparable to a
     person's review and are not logged as operator effort.
+
+- **(e) Provenance, verification failures, and verifier cost, 2026-10-17**
+  (the four passes of (b), measured from the ledger; no model run). The
+  report's agent block now also gives `audit_complete`,
+  `verification_details` (why verification failed, one reason per kind per
+  run), and the verifier's wall time (`verifier_wall_s`, its share of run
+  wall): the fresh reruns of each submitted program, submit checks returned
+  for a fix included, container start included.
+
+  | Batch | Submitted | Audit complete | Reproduced | Access verified | Strict | Strict, not verified | Verifier median / p90 | Share of run wall |
+  |---|---|---|---|---|---|---|---|---|
+  | `d4-dev-given_files-1` | 51 | 51 | 44 | 35 | 32 | 13 | 0.65 / 1.35 s | 0.35% |
+  | `d4-dev-given_files-2` | 49 | 49 | 46 | 38 | 27 | 6 | 0.69 / 1.55 s | 0.30% |
+  | `d4-dev-end_to_end-1` | 46 | 46 | 41 | 38 | 23 | 5 | 0.54 / 1.12 s | 0.20% |
+  | `d4-dev-end_to_end-2` | 45 | 45 | 40 | 38 | 22 | 5 | 0.64 / 1.31 s | 0.23% |
+
+  - **Verifier cost** is under 2.1 s per submitted run and under 0.4% of run
+    wall in every pass, so provenance is not where the time goes; the model
+    turns spent fixing a returned submission are not counted here (they
+    are model steps).
+  - **Why verification fails** (submitted runs; given files 1, 2, end to
+    end 1, 2): the rerun read no data file, values typed into the program,
+    8, 5, 5, 4; observed reads differ from `files_used`, 8, 6, 3, 3; the
+    rerun's answer differs from the submitted one, 6, 2, 3, 3; the rerun
+    exited non-zero, 1, 1, 2, 2. No audit was incomplete. Of the 104
+    strictly correct runs, 29 are not verified, for the same reasons; so the
+    gap between strict accuracy and verified success is the checks refusing
+    unsupported claims, not the verifier failing.
+  - **What the system demonstrably enforces**, with the evidence: (1) a run's
+    container holds only its labelled or selected inputs, read-only
+    (`test_only_selected_inputs_exist`,
+    `test_growth_mounts_only_the_selection_and_restarts`); (2) only IDs a
+    search returned can be selected (offline tests; 8 and 11 selections
+    refused in the passes, (c)); (3) each newly selected file matches its
+    manifest hash or the batch stops (`test_a_changed_file_stops_the_run`; no
+    mismatch in the passes); (4) no network, no host environment or
+    capabilities, writes only to scratch, and time, CPU, memory, process, and
+    output limits (the `-m docker` suite, 51 passing on this branch
+    2026-10-17); (5) the read audit fails closed: an incomplete trace or a
+    refused untraced clone leaves access unverified, and it was complete for
+    all 191 submitted runs; (6) access is verified only when the fresh
+    rerun's observed reads equal `files_used`, and `files_used` must name
+    selected files; (7) answer keys live in the evaluator store, split from
+    the agent-visible one at fetch, which refuses overlapping stores
+    (`test_split_by_visibility`, `test_overlapping_stores_are_refused`).
+  - **What it does not establish.** Observation is per open, not per byte:
+    a program that reads the file and prints a typed-in value passes the
+    access check (`test_hard_coded_answer_that_reads_the_file_passes`), and
+    reproduction says nothing about correctness
+    (`test_wrong_calculation_still_reproduces`). Only the final program is
+    audited; exploration cells are ledger records, not provenance. Audit
+    completeness is not evidence that anyone needs the audit.
 
 ## D5 — Focused ablations and final evaluation
 

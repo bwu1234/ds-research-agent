@@ -176,6 +176,19 @@ is close between conditions: when end-to-end runs submit, their file access
 checks out as often. `given_files` itself moved from 60.4% to 50.9% strict
 (all 53) between its two passes on the same setup.
 
+## Provenance and the verifier (D4)
+
+Across the four D4 passes, every submitted run's read audit was complete
+(191 of 191). Of the 104 strictly correct runs, 29 are not verified: their
+program typed values in instead of reading a file, read files other than
+the ones it claimed, or printed a different answer on the fresh rerun. The
+verifier's reruns take a median 0.5–0.7 s per submitted run, under 0.4% of
+run time. The system enforces that a run sees only its labelled or selected
+files, read-only and hash-checked, with no network, and that verified access
+means the rerun's observed reads equal the files it claimed. It does not show
+that a value came from the data it read: observation is per file open, and
+reproduction is not correctness.
+
 ## Limitations
 
 - Development tasks only; no holdout result exists yet.

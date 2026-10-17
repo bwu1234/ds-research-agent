@@ -210,6 +210,10 @@ def summarise(
         runs = ledger.runs(batch.batch_id)
         agent = agent_runs.summary_extra(ledger, [r.run_id for r in runs])
         fails = failures.counts(ledger, runs, tasks)
+        rerun_s = agent["verifier_wall_s_per_run"]
+        run_s = sum(r.wall_s for r in runs if r.wall_s is not None)
+        agent["verifier_wall_s"] = _dist(rerun_s)
+        agent["verifier_share_of_run_wall"] = round(sum(rerun_s) / run_s, 4) if run_s else None
         if batch.condition == end_to_end.CONDITION:
             agent["discovery"] = end_to_end.summary_extra(
                 ledger, batch, tasks, *_catalogue_of(batch)

@@ -267,6 +267,10 @@ def test_end_to_end_selects_mounts_scores_and_replays(harness: Harness) -> None:
     assert d["selection_precision"] == 0.25 and d["seed_complete"] == 1.0
     assert d["selections_per_run"] == 3.0 and d["refused_selections"] == 1
     assert summary["agent"]["model_requests_per_run"] == [5]
+    a = summary["agent"]
+    assert a["audit_complete"] == 1 and a["verification_details"] == {}
+    assert len(a["verifier_wall_s_per_run"]) == 1 and a["verifier_wall_s"] is not None
+    assert a["verifier_share_of_run_wall"] is not None
 
     # Replay from the ledger: search, model, and programs; selections resolved again.
     replay = new_batch(
@@ -466,6 +470,13 @@ def test_seed_reach_follows_collapse_and_the_runs_catalogue(harness: Harness) ->
 )
 def test_selection_state(row: dict[str, float], state: str) -> None:
     assert report._selection_state(row) == state
+
+
+def test_verification_details_drop_run_specific_tails() -> None:
+    kind = agent_runs._detail_kind
+    assert kind("rerun exited 1") == kind("rerun exited 137") == "rerun exited"
+    assert kind("read audit incomplete: trace gap") == "read audit incomplete"
+    assert kind("rerun read no data files") == "rerun read no data files"
 
 
 def test_show_places_a_run_by_how_far_its_gold_files_got(harness: Harness) -> None:
