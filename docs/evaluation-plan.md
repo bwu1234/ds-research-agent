@@ -192,6 +192,35 @@ and recall against `recall@10`, with precision and time reported beside
 them. Single-shot `@10` sees ten cards and selects nothing, so the agent's
 precision has no single-shot counterpart.
 
+**End to end (D4, condition `end_to_end`), registered 2026-10-16 before any
+end-to-end model run.** Discovery is one domain-filtered single-shot search
+(rag hybrid, collapsed, first `end_to_end.seed_cards` = 10) listed in the
+prompt; the agent selects from it in `run_python` (see
+[architecture.md](architecture.md#agent-tools)). Budgets: analysis as
+`given_files`, `agent.max_steps` (20) and `agent.max_wall_s` (1,800 s) per
+task, thinking `off`; `read_card` turns count against the 20 steps, a
+recorded difference from `given_files`. Discovery is the one seed search,
+under the MCP call timeout (120 s), timed and reported separately. The
+registered comparison: end-to-end minus `given_files` strict accuracy,
+paired on the 41 untuned development tasks (the 12-task sample reported
+apart), bootstrap as in D3, against a `given_files` batch on the same Ollama
+version. Two full development passes of each condition, at the same
+settings and server version; per-task scores average the two passes (as in
+D3 (m)). End to end is **retained** if the 95% interval's lower bound of the
+strict-accuracy difference is above −10 points (mirroring D3's +10 minimum
+worthwhile gain) and its median wall time per task is at most 1.25× that of
+`given_files`. If the interval's upper bound is below −10 points, it is
+**worse**: diagnose discovery before D5, separating retrieval misses
+(`seed_complete`) from selection and analysis misses. Otherwise the result
+is **inconclusive**. Averaging passes narrows run-to-run noise only, not
+task-sampling uncertainty (in D3 the interval narrowed from 29 to 24
+points), so an inconclusive result remains likely. *Amended 2026-10-16,
+before any end-to-end model run:* the first version decided "retained" on
+the point estimate and "worse" on the interval, which favoured passing; both
+now use the interval, and the second pass was added. Answer score,
+verified success, reproduction, access verification, selection recall and
+complete set, and `seed_complete` are reported beside the primary result.
+
 Gold answers, reference solutions, and benchmark sub-task instructions stay
 outside prompts, tools, indexes, and sandbox mounts. Only the given-files
 condition receives oracle `data_sources`. Discovery scoring reads those labels

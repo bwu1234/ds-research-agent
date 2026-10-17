@@ -1,4 +1,4 @@
-"""The given-files analysis loop: model step, run code, repeat, submit, rerun.
+"""The analysis loop: model step, run code, repeat, submit, rerun.
 
 Each step is one model turn through the bounded tool-call repair policy;
 the conversation is append-only, so Ollama can reuse the cached prefix.
@@ -15,6 +15,11 @@ The loop never sees gold answers: scoring is the evaluator's job. Model
 requests are recorded by the client the caller passes in (the harness wraps
 its client); programs, the submission, and the verification go to the
 ``Recorder``.
+
+The end-to-end condition (D4) runs the same loop with its own tools and a
+``FileAccess``: ``read_card`` reads a discovered card, a ``run_python`` call
+may select discovered IDs before its code runs (growing the mounts, which
+restarts the kernel), and ``files_used`` is checked against the selection.
 """
 
 from __future__ import annotations
@@ -22,7 +27,7 @@ from __future__ import annotations
 import asyncio
 import difflib
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict
@@ -49,7 +54,7 @@ from ds_research_agent.agent.tools import (
 )
 from ds_research_agent.agent.workspace import Workspace
 from ds_research_agent.config import AgentSettings
-from ds_research_agent.models import ChatMessage, ModelClient, ToolCall
+from ds_research_agent.models import ChatMessage, ModelClient, ToolCall, ToolSpec
 from ds_research_agent.sandbox import (
     CellResult,
     SandboxError,
@@ -116,6 +121,35 @@ class Recorder(Protocol):
     def submission(self, submission: Submission, step: int) -> None: ...
 
     def verification(self, verification: Verification) -> None: ...
+
+
+class Selected(_Frozen):
+    # Why the selection was refused (nothing is mounted or run), or empty.
+    problems: tuple[str, ...]
+    # Container paths mounted by this selection that were not mounted before.
+    added: tuple[str, ...] = ()
+
+
+class FileAccess(Protocol):
+    """Catalogue-mediated file access for the end-to-end condition."""
+
+    # Where the allowed files come from, for the submission error text.
+    allowed: str
+
+    @property
+    def files(self) -> list[str]:
+        """Container paths selected so far, the submission's allowed files."""
+        ...
+
+    def read_card(self, args: Mapping[str, Any]) -> str: ...
+
+    async def select(self, args: Mapping[str, Any]) -> Selected:
+        """Resolve a ``run_python`` call's selection and update the mounts."""
+        ...
+
+    def selection_text(self, selected: Selected, restarted: bool) -> str:
+        """What the tool result says about a selection (refused, or mounted)."""
+        ...
 
 
 def _head(text: str, limit: int, truncated: bool) -> str:
@@ -212,6 +246,10 @@ def verification(sub: Submission, run: SandboxRun | None, error: str | None) -> 
     )
 
 
+# The error signature of a refused selection (end to end).
+REFUSED_SELECTION = "select: refused"
+
+
 def _tool(name: str, content: str) -> ChatMessage:
     return ChatMessage(role="tool", tool_name=name, content=content)
 
@@ -226,9 +264,14 @@ class _Run:
         settings: AgentSettings,
         cell_timeout_s: int,
         clock: Callable[[], float],
+        tools: Sequence[ToolSpec],
+        access: FileAccess | None,
     ) -> None:
         self.client, self.workspace, self.recorder = client, workspace, recorder
         self.files = list(files)
+        self.tools, self.access = tuple(tools), access
+        # A kernel with state exists (a cell ran and left it alive).
+        self.kernel_live = False
         self.s = settings
         self.cell_timeout_s = cell_timeout_s
         self.clock = clock
@@ -245,17 +288,25 @@ class _Run:
 
     async def run_cell(self, step: int, index: int, call: ToolCall) -> ChatMessage:
         code = str(call.arguments["code"])
+        prefix = ""
+        if self.access is not None and call.arguments.get("select"):
+            selected = await self.access.select(call.arguments)
+            restarted = bool(selected.added) and self.kernel_live
+            prefix = self.access.selection_text(selected, restarted)
+            if selected.problems:
+                # Any refused selection is one kind of error for the re-plan
+                # rule (whatever the IDs or globs), so repeated refusals cannot
+                # spend the budget without the notice.
+                if self.repeated(REFUSED_SELECTION):
+                    prefix += "\n" + REPLAN.format(n=self.repeats)
+                return _tool("run_python", prefix)
+            prefix += "\n"
         timeout = max(1, min(self.cell_timeout_s, int(self.left())))
         cell = await self.workspace.execute(code, timeout)
-        sig = error_signature(cell)
-        if sig is not None and sig == self.last_error:
-            self.repeats += 1
-        else:
-            self.repeats = 1 if sig is not None else 0
-        self.last_error = sig
-        replan = sig is not None and self.repeats >= self.s.replan_after_repeats
+        self.kernel_live = cell.kernel_alive
+        replan = self.repeated(error_signature(cell))
         stuck = self.no_progress(code, cell)
-        content = render_cell(cell, self.s.max_tool_output_chars)
+        content = prefix + render_cell(cell, self.s.max_tool_output_chars)
         if not cell.kernel_alive:
             content += "\n" + KERNEL_RESTARTED.format(why=cell.status)
         if replan:
@@ -277,6 +328,16 @@ class _Run:
         )
         self.seq += 1
         return _tool("run_python", content)
+
+    def repeated(self, sig: str | None) -> bool:
+        """Count consecutive identical errors (``sig`` None: a success); True
+        from ``replan_after_repeats`` in a row."""
+        if sig is not None and sig == self.last_error:
+            self.repeats += 1
+        else:
+            self.repeats = 1 if sig is not None else 0
+        self.last_error = sig
+        return sig is not None and self.repeats >= self.s.replan_after_repeats
 
     def no_progress(self, code: str, cell: CellResult) -> bool:
         """Count successful cells nearly identical to the one before; True from
@@ -360,7 +421,7 @@ class _Run:
                     chat_with_repair(
                         self.client,
                         messages,
-                        TOOLS,
+                        self.tools,
                         self.s.tool_call_max_repairs,
                         self.s.server_retries,
                     ),
@@ -391,8 +452,16 @@ class _Run:
                         )
                     elif call.name == "run_python":
                         replies.append(await self.run_cell(steps, i, call))
+                    elif call.name == "read_card" and self.access is not None:
+                        replies.append(_tool(call.name, self.access.read_card(call.arguments)))
                     else:  # submit_answer; the repair policy rejects unknown tools
-                        problems = check_submission(call.arguments, self.files)
+                        problems = (
+                            check_submission(call.arguments, self.files)
+                            if self.access is None
+                            else check_submission(
+                                call.arguments, self.access.files, self.access.allowed
+                            )
+                        )
                         if problems:
                             replies.append(
                                 _tool(
@@ -468,9 +537,12 @@ async def run_agent(
     settings: AgentSettings,
     cell_timeout_s: int,
     clock: Callable[[], float] = time.monotonic,
+    tools: Sequence[ToolSpec] = TOOLS,
+    access: FileAccess | None = None,
 ) -> Outcome:
-    """Run one task to a stop reason. ``files`` are the container paths given."""
-    r = _Run(client, workspace, recorder, files, settings, cell_timeout_s, clock)
+    """Run one task to a stop reason. ``files`` are the container paths given
+    (given files); with ``access`` (end to end), the selection replaces them."""
+    r = _Run(client, workspace, recorder, files, settings, cell_timeout_s, clock, tools, access)
     messages = [ChatMessage(role="system", content=system), ChatMessage(role="user", content=user)]
     try:
         out = await r.run(messages)

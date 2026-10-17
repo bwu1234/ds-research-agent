@@ -70,6 +70,10 @@ discovery:
   collapse_groups: true       # D2 progress (c)
   budget_warning_steps: 2
 
+end_to_end:                   # D4; search and cards follow discovery
+  seed_cards: 10              # as complete@10 in the single-shot baseline
+  max_listed_mounts: 40
+
 sandbox:
   docker: docker
   image: dsra-sandbox:d3

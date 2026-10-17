@@ -93,15 +93,14 @@ SUBMIT_ANSWER = ToolSpec(
 
 TOOLS: tuple[ToolSpec, ...] = (RUN_PYTHON, SUBMIT_ANSWER)
 
-SYSTEM_PROMPT = f"""\
-You are a data analysis agent. You answer one question by writing and running \
-Python code against the data files listed in the user's message.
-
-Environment: Python 3.14 in a sandbox. The data files are read-only under /data, \
-and /scratch is writable. There is no internet access and no package \
+# The prompt's parts; the end-to-end prompt (agent/end_to_end.py) shares the
+# environment's packages, the working rules, and the submission contract.
+ENVIRONMENT_TAIL = f"""\
+There is no internet access and no package \
 installation. Available packages: {", ".join(SANDBOX_PACKAGES)}, and the \
-standard library.
+standard library."""
 
+WORK_AND_FINISH = """\
 How to work:
 - Use run_python in small steps. First inspect each relevant file: columns, \
 dtypes, a few rows, encoding, and how missing values are written. Then compute.
@@ -120,7 +119,7 @@ or explanation. Use a list only when the question asks for several items.
 - program: a self-contained program, with all its imports (json included), \
 that reads the raw files from /data, recomputes the answer from scratch without \
 kernel state or files in /scratch, and ends with \
-print(json.dumps({{"answer": value}})) so that its last line of output is JSON. \
+print(json.dumps({"answer": value})) so that its last line of output is JSON. \
 Convert numpy and pandas values with int(), float(), str(), or .tolist() first. \
 It is run in a fresh sandbox when you submit, and its output must reproduce \
 your answer. If it fails or prints no answer line, you get the error back and \
@@ -128,6 +127,15 @@ can fix it.
 - assumptions (optional): interpretation choices you made.
 
 If you cannot find an answer, still submit your best estimate."""
+
+SYSTEM_PROMPT = f"""\
+You are a data analysis agent. You answer one question by writing and running \
+Python code against the data files listed in the user's message.
+
+Environment: Python 3.14 in a sandbox. The data files are read-only under /data, \
+and /scratch is writable. {ENVIRONMENT_TAIL}
+
+{WORK_AND_FINISH}"""
 
 REPLAN = (
     "The same error has now occurred {n} times in a row. Before running more code, "

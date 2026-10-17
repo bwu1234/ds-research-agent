@@ -167,6 +167,20 @@ class DiscoverySettings(_Strict):
     budget_warning_steps: NonNegativeInt
 
 
+class EndToEndSettings(_Strict):
+    """The end-to-end condition (D4): one single-shot search seeds the run's
+    discovered set, then the analysis loop selects files by ID.
+
+    The search and the cards follow ``discovery`` (passages, snippets, card
+    length, listed members, collapse); the analysis budget is ``agent``'s."""
+
+    # Distinct results (after collapse) the seed search keeps, as ``@k`` in
+    # the single-shot baseline.
+    seed_cards: PositiveInt
+    # Newly mounted paths listed in a run_python result; the rest are counted.
+    max_listed_mounts: PositiveInt
+
+
 class SandboxSettings(_Strict):
     # Docker CLI; containers run in Docker Desktop's Linux VM on macOS.
     docker: str
@@ -251,6 +265,8 @@ class Settings(BaseSettings):
     rag_service: RagServiceSettings
     agent: AgentSettings
     discovery: DiscoverySettings
+    # Optional so configs from before D4 still load; the condition needs it.
+    end_to_end: EndToEndSettings | None = None
     sandbox: SandboxSettings
     kramabench: KramaBenchSettings
     eval: EvalSettings

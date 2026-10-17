@@ -15,10 +15,12 @@ import statistics
 from collections import Counter, defaultdict
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any
 
+from ds_research_agent.catalogue import load_manifest
 from ds_research_agent.ledger import Batch, Ledger, Step
-from eval.kramabench import agent_runs, failures
+from eval.kramabench import agent_runs, end_to_end, failures
 from eval.kramabench.baselines import PROGRAM_CONDITIONS
 from eval.kramabench.scoring import PROFILE
 from eval.kramabench.tasks import Task
@@ -207,6 +209,13 @@ def summarise(
         runs = ledger.runs(batch.batch_id)
         agent = agent_runs.summary_extra(ledger, [r.run_id for r in runs])
         fails = failures.counts(ledger, runs, tasks)
+        if batch.condition == end_to_end.CONDITION:
+            # Paths as the batch recorded them; without the manifest, the seed
+            # search's reach is left out.
+            root = Path(batch.config["kramabench"]["visible_root"])
+            mpath = Path(batch.config["catalogue"]["manifest_path"])
+            manifest = load_manifest(mpath) if mpath.exists() else None
+            agent["discovery"] = end_to_end.summary_extra(ledger, batch, tasks, root, manifest)
 
     def group(attr: str) -> dict[str, Any]:
         keys: dict[str, set[str]] = defaultdict(set)

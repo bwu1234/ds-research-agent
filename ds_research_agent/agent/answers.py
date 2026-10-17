@@ -31,12 +31,15 @@ class Submission(_Frozen):
     assumptions: tuple[str, ...] = ()
 
 
-def check_submission(args: dict[str, Any], allowed_files: Sequence[str]) -> list[str]:
-    """Problems beyond the JSON Schema; empty when the submission is accepted."""
+def check_submission(
+    args: dict[str, Any], allowed_files: Sequence[str], allowed: str = "given for this task"
+) -> list[str]:
+    """Problems beyond the JSON Schema; empty when the submission is accepted.
+    ``allowed`` says where ``allowed_files`` came from, in the error text."""
     problems = []
     unknown = sorted(set(args.get("files_used", ())) - set(allowed_files))
     if unknown:
-        problems.append(f"files_used lists files not given for this task: {', '.join(unknown)}")
+        problems.append(f"files_used lists files not {allowed}: {', '.join(unknown)}")
     if not str(args.get("program", "")).strip():
         problems.append("program is empty")
     answer = args.get("answer")

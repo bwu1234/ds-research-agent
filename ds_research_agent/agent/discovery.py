@@ -217,7 +217,9 @@ class CatalogueTools:
     def _card(self, rec: CatalogueEntry | CatalogueGroup) -> str:
         return (self.cards_dir / rec.document_id).read_text(encoding="utf-8")
 
-    async def search(self, query: str) -> str:
+    async def search(self, query: str, limit: int | None = None) -> str:
+        """Results as the model sees them; ``limit`` keeps the first that many
+        distinct results (after collapse), and only those are discovered."""
         self.searches += 1
         resp = await self.searcher.search(
             query,
@@ -243,6 +245,7 @@ class CatalogueTools:
                 continue
             seen.add(rid)
             hits.append((rec, p.text, via))
+        hits = hits[:limit]
         self.discovered.add(
             r.catalogue_id if isinstance(r, CatalogueEntry) else r.group_id for r, _, _ in hits
         )
