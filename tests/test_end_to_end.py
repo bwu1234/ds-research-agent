@@ -448,3 +448,38 @@ def test_seed_reach_follows_collapse_and_the_runs_catalogue(harness: Harness) ->
     )
     other = end_to_end.summary_extra(h.ledger, batch, h.tasks, root, rebuilt)
     assert other["manifest_mismatch"] == 1 and other["seed_complete"] is None
+
+
+@pytest.mark.parametrize(
+    ("row", "state"),
+    [
+        ({"complete": 1.0, "seed_complete": 1.0}, "selection_complete"),
+        ({"complete": 0.0, "seed_complete": 1.0}, "selection_incomplete"),
+        ({"complete": 0.0, "seed_complete": 0.0}, "seed_incomplete"),
+        ({"complete": 0.0}, "unscored"),  # recorded on another catalogue
+        ({}, "unscored"),  # gold set did not resolve
+    ],
+)
+def test_selection_state(row: dict[str, float], state: str) -> None:
+    assert report._selection_state(row) == state
+
+
+def test_by_selection_pairs_each_run_with_the_base_on_its_task(harness: Harness) -> None:
+    h = harness
+
+    class Nothing:
+        async def search(self, query: str, **kw: Any) -> SearchResponse:
+            return _response(query, kw["corpus"], [])
+
+    def submit() -> Scripted:
+        return Scripted(_reply("submit_answer", {"answer": 1, "files_used": [], "program": "p"}))
+
+    base = _run_one(h, submit(), OneCardSearcher(), "e2e-base")
+    other = _run_one(h, submit(), Nothing(), "e2e-other")
+    out = report.by_selection(h.ledger, [base], [other], h.tasks, 200, 0)
+    s = out["seed_incomplete"]
+    assert (s["runs"], s["parents"], s["diff"], s["diff_ci95"]) == (1, 1, 0.0, [0.0, 0.0])
+    assert all(out[k]["runs"] == 0 for k in report.SELECTION_STATES if k != "seed_incomplete")
+    assert report.by_selection(h.ledger, [base], [other], h.tasks, 200, 0, keys=[])[
+        "seed_incomplete"
+    ] == {"runs": 0}

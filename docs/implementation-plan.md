@@ -2183,10 +2183,30 @@ causal retrieval cost. Keep the holdout sealed until D5.
     seeds; 8 and 11 selections refused. Budget stops rise from 2–4 to 7–8,
     all `max_steps`. Verified success is close between conditions (34.0%
     and 32.1% vs 35.8% and 39.6%): end-to-end runs that submit pass the
-    access check as often, so the gap is in answers, not provenance. Not
-    yet measured: strict accuracy split by whether the selection was
-    complete, and failure labels (all 61 failed end-to-end runs are
+    access check as often, so the gap is in answers, not provenance. Failure
+    labels are not yet assigned (all 61 failed end-to-end runs are
     unlabelled).
+  - **Split by selection state** (measured 2026-10-17 after the decision;
+    diagnostic, not part of the rule; `report.by_selection`, printed by
+    pooled `compare` when `--vs` is `end_to_end`). Each end-to-end run is
+    placed by how far its files got and paired with `given_files`' two-pass
+    mean on the same task; 41 untuned tasks, 82 runs:
+
+    | State | Runs (parents) | `end_to_end` | `given_files`, same tasks | Difference | Share of −14.6 |
+    |---|---|---|---|---|---|
+    | Whole gold set selected | 42 (21) | 57.1% | 66.7% | −9.5 (−21.4 to 0.0) | −4.9 |
+    | Seed had it, selection incomplete | 18 (9) | 33.3% | 50.0% | −16.7 (−44.4 to +11.1) | −3.7 |
+    | Seed missed a gold file | 22 (11) | 13.6% | 36.4% | −22.7 (−40.9 to 0.0) | −6.1 |
+
+    The shares sum to the pooled difference. Every task fell in the same
+    state in both passes. All 53 tasks: −10.3, −13.6, −19.2 (58, 22, 26
+    runs). This corrects the first write-up of (c), which said the loss was
+    mostly file choice: choosing among found files is about a quarter of it.
+    Seed misses are the largest part and fall on tasks that are also hard
+    with given files; runs with the complete set selected still trail given
+    files by about 10 points, so discovery also costs the analysis itself
+    (more steps and context, possibly extra selected files at precision
+    0.70). The states hold 9 to 21 parents; the intervals are wide.
   - **Run to run.** `given_files` moved from 60.4% to 50.9% between passes
     on the same commit, config, and server, a larger swing than D3 (m)'s;
     `end_to_end` moved 43.4% to 41.5%. This is why the rule pools two

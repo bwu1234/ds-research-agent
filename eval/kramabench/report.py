@@ -18,7 +18,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from ds_research_agent.catalogue import load_manifest
+from ds_research_agent.catalogue import Manifest, load_manifest
 from ds_research_agent.ledger import Batch, Ledger, Step
 from eval.kramabench import agent_runs, end_to_end, failures
 from eval.kramabench.baselines import PROGRAM_CONDITIONS
@@ -210,12 +210,9 @@ def summarise(
         agent = agent_runs.summary_extra(ledger, [r.run_id for r in runs])
         fails = failures.counts(ledger, runs, tasks)
         if batch.condition == end_to_end.CONDITION:
-            # Paths as the batch recorded them; without the manifest, the seed
-            # search's reach is left out.
-            root = Path(batch.config["kramabench"]["visible_root"])
-            mpath = Path(batch.config["catalogue"]["manifest_path"])
-            manifest = load_manifest(mpath) if mpath.exists() else None
-            agent["discovery"] = end_to_end.summary_extra(ledger, batch, tasks, root, manifest)
+            agent["discovery"] = end_to_end.summary_extra(
+                ledger, batch, tasks, *_catalogue_of(batch)
+            )
 
     def group(attr: str) -> dict[str, Any]:
         keys: dict[str, set[str]] = defaultdict(set)
@@ -258,6 +255,90 @@ def summarise(
         "thinking_chars": _dist([o.thinking_chars for o in os_ if o.thinking_chars is not None]),
         "throughput": throughput(os_),
     } | ({"agent": agent, "failures": fails} if agent is not None else {})
+
+
+def _catalogue_of(batch: Batch) -> tuple[Path, Manifest | None]:
+    """Visible root and manifest as the batch recorded them; without the
+    manifest, the seed search's reach is left out."""
+    mpath = Path(batch.config["catalogue"]["manifest_path"])
+    manifest = load_manifest(mpath) if mpath.exists() else None
+    return Path(batch.config["kramabench"]["visible_root"]), manifest
+
+
+# Selection states of an end-to-end run, from the furthest the files got.
+SELECTION_STATES = ("selection_complete", "selection_incomplete", "seed_incomplete", "unscored")
+
+
+def _selection_state(row: Mapping[str, Any]) -> str:
+    if row.get("complete") == 1:
+        return "selection_complete"
+    if row.get("seed_complete") == 1:
+        return "selection_incomplete"
+    if row.get("seed_complete") == 0:
+        return "seed_incomplete"
+    return "unscored"
+
+
+def by_selection(
+    ledger: Ledger,
+    base: Sequence[Batch],
+    other: Sequence[Batch],
+    tasks: dict[str, Task],
+    resamples: int,
+    seed: int,
+    keys: Collection[str] | None = None,
+) -> dict[str, Any]:
+    """End-to-end strict accuracy split by how far each run's files got: the
+    whole gold set selected, reachable from the seed search but not all
+    selected, or not reachable. Each run is paired with ``base`` (given
+    files, mean over its passes) on the same task, so a state's difference
+    is net of how hard its tasks are. A task can fall in different states in
+    different passes. Intervals resample parent tasks within domain, as
+    ``bootstrap``; a state's runs come along with their parent."""
+    keep = None if keys is None else set(keys)
+    gf = per_task([o for b in base for o in outcomes(ledger, b, tasks)], "strict")
+    items: dict[str, list[tuple[str, str, float, float]]] = defaultdict(list)
+    for b in other:
+        rows = end_to_end.selection_rows(ledger, b, tasks, *_catalogue_of(b))
+        strict = {(o.key, o.repeat): o.strict for o in outcomes(ledger, b, tasks)}
+        for r in ledger.runs(b.batch_id):
+            if keep is not None and r.task_key not in keep:
+                continue
+            t = tasks[r.task_key]
+            items[_selection_state(rows[r.run_id])].append(
+                (t.domain, t.parent_key, float(strict[(r.task_key, r.repeat)]), gf[r.task_key])
+            )
+    rng = random.Random(seed)
+    out: dict[str, Any] = {"base": [b.batch_id for b in base], "other": [b.batch_id for b in other]}
+    for state in SELECTION_STATES:
+        its = items.get(state, [])
+        if not its:
+            out[state] = {"runs": 0}
+            continue
+        by_parent: dict[str, list[tuple[float, float]]] = defaultdict(list)
+        strata: dict[str, list[str]] = defaultdict(list)
+        for dom, parent, e, g in its:
+            by_parent[parent].append((e, g))
+            if parent not in strata[dom]:
+                strata[dom].append(parent)
+        diffs = []
+        for _ in range(resamples):
+            drawn = [q for ps in strata.values() for q in rng.choices(ps, k=len(ps))]
+            pairs = [p for q in drawn for p in by_parent[q]]
+            diffs.append(statistics.fmean(e - g for e, g in pairs))
+        diffs.sort()
+        out[state] = {
+            "runs": len(its),
+            "parents": len(by_parent),
+            "other_strict": round(statistics.fmean(e for _, _, e, _ in its), 4),
+            "base_strict_same_tasks": round(statistics.fmean(g for *_, g in its), 4),
+            "diff": round(statistics.fmean(e - g for _, _, e, g in its), 4),
+            "diff_ci95": [
+                round(diffs[int(0.025 * len(diffs))], 4),
+                round(diffs[min(len(diffs) - 1, int(0.975 * len(diffs)))], 4),
+            ],
+        }
+    return out
 
 
 def _median_task_wall(os_: Sequence[Outcome]) -> float | None:

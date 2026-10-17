@@ -56,9 +56,11 @@ End to end (D4, two passes per condition on Ollama 0.40.4): searching for
 the files and then analysing them scores 40.2% strict against 54.9% for
 given files on the same run, **−14.6 points (−28.1 to −1.2)**, at twice the
 median time per task. Under the registered rule that is inconclusive: worse
-than given files, but not shown to be more than 10 points worse. The search
-results contain every needed file for 75% of tasks; the agent's selection is
-complete for 55%.
+than given files, but not shown to be more than 10 points worse. The loss
+splits roughly three ways: tasks whose needed files the search missed
+(about 6 points), tasks where the search found them but the agent did not
+select them all (about 4), and runs that selected every needed file and
+still scored lower than given files on the same tasks (about 5).
 
 Development tasks only: the holdout stays sealed until D5. Setup, all-task
 figures, runtime limits, failure analysis, and limitations are in
@@ -117,8 +119,8 @@ D2 has carded every benchmark file, grouped file families, and measured
 discovery: single-shot search and an agentic searcher are not distinguishable
 on complete sets (see Results). Astronomy, whose tasks need parts of several
 large families, remains the weak domain. D4 has run end to end and costs
-accuracy against given files, mostly in choosing files the search already
-found. D5 runs focused ablations and the sealed-holdout
+accuracy against given files, split across search misses, incomplete
+selections, and analysis with the right files selected. D5 runs focused ablations and the sealed-holdout
 evaluation, and the first release ends with a write-up and a synthetic
 provenance demo.
 
