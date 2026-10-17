@@ -626,6 +626,11 @@ def _compare_pooled(
                 "end_to_end (--vs, 2 passes) on --subset untuned"
             )
         out["d4"] = report.d4_decision(out)
+    if other[0].condition == end_to_end.CONDITION:
+        # Diagnostic, not part of the registered rule.
+        out["by_selection"] = report.by_selection(
+            ledger, base, other, tasks, ev.bootstrap_resamples, ev.bootstrap_seed, keys=keys
+        )
     print(json.dumps(out, indent=2))
     return 0
 

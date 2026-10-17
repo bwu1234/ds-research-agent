@@ -147,6 +147,22 @@ any accuracy.
 
 The seed search contained every needed file for 75% of tasks, but the
 agent's final selection was complete for 55% (recall 0.72, precision 0.70).
+Splitting each end-to-end run by how far its files got, and pairing it with
+`given_files` on the same task (41 primary, both passes; diagnostic, not
+part of the registered rule):
+
+| Files in the run | Runs | `end_to_end` strict | `given_files`, same tasks | Difference (95% interval) | Share of the −14.6 |
+|---|---|---|---|---|---|
+| Every needed file selected | 42 | 57.1% | 66.7% | −9.5 (−21.4 to 0.0) | −4.9 |
+| Search found them, selection incomplete | 18 | 33.3% | 50.0% | −16.7 (−44.4 to +11.1) | −3.7 |
+| Search missed a needed file | 22 | 13.6% | 36.4% | −22.7 (−40.9 to 0.0) | −6.1 |
+
+File choice among found files is about a quarter of the loss. Runs that
+selected every needed file still trail given files on the same tasks, so the
+discovery steps also cost the analysis; tasks the search misses are the
+hardest ones for given files too. Each state holds only 9 to 21 parent
+tasks, so these intervals are wide.
+
 End-to-end runs use more steps (median 14–16 model requests against 8–9)
 and hit the step budget more often (7–8 of 53 against 2–4). Verified success
 is close between conditions: when end-to-end runs submit, their file access

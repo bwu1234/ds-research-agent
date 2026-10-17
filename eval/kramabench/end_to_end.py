@@ -224,26 +224,22 @@ def seed_files(
     return [f for d in ranked[:k] for f in members[d]]
 
 
-def summary_extra(
+def selection_rows(
     ledger: Ledger,
     batch: Batch,
     tasks: Mapping[str, Task],
     root: Path,
     manifest: Manifest | None,
-) -> dict[str, Any]:
-    """Discovery inside end-to-end runs: seed search time, the selection's
-    recall and complete set against resolved ``data_sources`` (and, with the
-    run's own catalogue, whether the seed results made the gold set
-    reachable at all), selections, and kernel restarts for new mounts.
-
-    ``seed_complete`` is left out for a run whose recorded ``cards_sha256``
-    differs from ``manifest`` (counted as ``manifest_mismatch``): a rebuilt
-    catalogue would map the recorded results to other files."""
+) -> dict[str, dict[str, Any]]:
+    """Per run (by run ID): seed search time, selections, refusals, kernel
+    sessions, ``mismatch`` (recorded on another catalogue), and, where the
+    task's gold set resolves, the selection's metrics and ``seed_complete``
+    (left out on a mismatch: a rebuilt catalogue would map the recorded
+    results to other files)."""
     k = int((batch.config.get("end_to_end") or {}).get("seed_cards", 0))
     collapse_groups = bool((batch.config.get("discovery") or {}).get("collapse_groups", True))
     cards = cards_sha256(manifest) if manifest is not None else None
-    rows: list[dict[str, Any]] = []
-    mismatched = 0
+    rows: dict[str, dict[str, Any]] = {}
     for r in ledger.runs(batch.batch_id):
         gold, unresolved = gold_files(tasks[r.task_key], root)
         steps = ledger.steps(r.run_id)
@@ -258,8 +254,7 @@ def summary_extra(
             "kernel_sessions": len(sessions),
         }
         same_catalogue = manifest is not None and r.input_manifest.get("cards_sha256") == cards
-        if manifest is not None and not same_catalogue:
-            mismatched += 1
+        row["mismatch"] = manifest is not None and not same_catalogue
         if gold:
             m = selection_metrics(selected_files(ledger, r.run_id), gold)
             if unresolved:
@@ -268,7 +263,23 @@ def summary_extra(
             if manifest is not None and same_catalogue:
                 reach = set(seed_files(ledger, r.run_id, manifest, k, collapse_groups))
                 row["seed_complete"] = float(set(gold) <= reach)
-        rows.append(row)
+        rows[r.run_id] = row
+    return rows
+
+
+def summary_extra(
+    ledger: Ledger,
+    batch: Batch,
+    tasks: Mapping[str, Task],
+    root: Path,
+    manifest: Manifest | None,
+) -> dict[str, Any]:
+    """Discovery inside end-to-end runs: seed search time, the selection's
+    recall and complete set against resolved ``data_sources`` (and, with the
+    run's own catalogue, whether the seed results made the gold set
+    reachable at all), selections, and kernel restarts for new mounts.
+    Runs recorded on another catalogue count as ``manifest_mismatch``."""
+    rows = list(selection_rows(ledger, batch, tasks, root, manifest).values())
 
     def mean(key: str) -> float | None:
         vals = [float(r[key]) for r in rows if r.get(key) is not None]
@@ -281,7 +292,7 @@ def summary_extra(
         "selection_complete": mean("complete"),
         "selection_precision": mean("precision"),
         "seed_complete": mean("seed_complete"),
-        "manifest_mismatch": mismatched,
+        "manifest_mismatch": sum(r["mismatch"] for r in rows),
         "empty_seed": sum(r["empty_seed"] for r in rows),
         "selections_per_run": mean("selections"),
         "refused_selections": sum(r["refused_selections"] for r in rows),
