@@ -246,6 +246,10 @@ def verification(sub: Submission, run: SandboxRun | None, error: str | None) -> 
     )
 
 
+# The error signature of a refused selection (end to end).
+REFUSED_SELECTION = "select: refused"
+
+
 def _tool(name: str, content: str) -> ChatMessage:
     return ChatMessage(role="tool", tool_name=name, content=content)
 
@@ -290,20 +294,17 @@ class _Run:
             restarted = bool(selected.added) and self.kernel_live
             prefix = self.access.selection_text(selected, restarted)
             if selected.problems:
+                # Any refused selection is one kind of error for the re-plan
+                # rule (whatever the IDs or globs), so repeated refusals cannot
+                # spend the budget without the notice.
+                if self.repeated(REFUSED_SELECTION):
+                    prefix += "\n" + REPLAN.format(n=self.repeats)
                 return _tool("run_python", prefix)
-            if selected.added:
-                self.kernel_live = False
             prefix += "\n"
         timeout = max(1, min(self.cell_timeout_s, int(self.left())))
         cell = await self.workspace.execute(code, timeout)
         self.kernel_live = cell.kernel_alive
-        sig = error_signature(cell)
-        if sig is not None and sig == self.last_error:
-            self.repeats += 1
-        else:
-            self.repeats = 1 if sig is not None else 0
-        self.last_error = sig
-        replan = sig is not None and self.repeats >= self.s.replan_after_repeats
+        replan = self.repeated(error_signature(cell))
         stuck = self.no_progress(code, cell)
         content = prefix + render_cell(cell, self.s.max_tool_output_chars)
         if not cell.kernel_alive:
@@ -327,6 +328,16 @@ class _Run:
         )
         self.seq += 1
         return _tool("run_python", content)
+
+    def repeated(self, sig: str | None) -> bool:
+        """Count consecutive identical errors (``sig`` None: a success); True
+        from ``replan_after_repeats`` in a row."""
+        if sig is not None and sig == self.last_error:
+            self.repeats += 1
+        else:
+            self.repeats = 1 if sig is not None else 0
+        self.last_error = sig
+        return sig is not None and self.repeats >= self.s.replan_after_repeats
 
     def no_progress(self, code: str, cell: CellResult) -> bool:
         """Count successful cells nearly identical to the one before; True from

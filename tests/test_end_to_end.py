@@ -366,3 +366,85 @@ def test_seed_limit_keeps_the_first_results(harness: Harness) -> None:
     (only,) = tools.discovered.ids
     assert manifest.by_catalogue_id()[only].file_path == "legal/input/f2.csv"
     assert "(1):" in text and "f1.csv" not in text
+
+
+class Scripted:
+    """Replies from a list, one per model turn; records each request."""
+
+    def __init__(self, *replies: ChatResult) -> None:
+        self.replies = list(replies)
+        self.requests: list[list[ChatMessage]] = []
+
+    async def chat(
+        self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = ()
+    ) -> ChatResult:
+        self.requests.append(list(messages))
+        return self.replies.pop(0)
+
+
+def _run_one(h: Harness, model: Any, searcher: Any, batch_id: str) -> Any:
+    manifest = load_manifest(h.settings.catalogue.manifest_path)
+    key = next(k for k in h.split.dev if h.tasks[k].domain == "legal")
+    batch = new_batch(
+        h.settings, h.model, h.split, condition="end_to_end", task_set="dev", keys=(key,),
+        repeats=1, batch_id=batch_id,
+    )  # fmt: skip
+    h.ledger.add_batch(batch)
+    ws = FakeWorkspace(0, list)
+
+    async def run_task(hh: Harness, b: Any, t: Any, r: int, c: Any) -> Any:
+        return await end_to_end.run_end_to_end_task(
+            hh, b, t, r, c, lambda *_: ws, None, searcher, manifest
+        )
+
+    asyncio.run(run_batch(h, batch, lambda _t, _r: model, agent_task=run_task))
+    return batch
+
+
+def test_repeated_refused_selections_ask_for_a_new_plan(harness: Harness) -> None:
+    h = harness
+    bad = [
+        _reply("run_python", {"code": "x", "select": [{"id": f"legal/nope{i}"}]}) for i in (1, 2)
+    ]
+    model = Scripted(*bad, _reply("submit_answer", {"answer": 1, "files_used": [], "program": "p"}))
+    _run_one(h, model, OneCardSearcher(), "e2e-refused")
+    tool = [m.content for m in model.requests[-1] if m.role == "tool"]
+    # Different IDs, same kind of error: the second refusal asks for a re-plan.
+    assert "same error has now occurred" not in tool[0]
+    assert "The same error has now occurred 2 times" in tool[1]
+
+
+def test_empty_seed_search_says_nothing_can_be_selected(harness: Harness) -> None:
+    h = harness
+
+    class Nothing:
+        async def search(self, query: str, **kw: Any) -> SearchResponse:
+            return _response(query, kw["corpus"], [])
+
+    model = Scripted(_reply("submit_answer", {"answer": 1, "files_used": [], "program": "p"}))
+    batch = _run_one(h, model, Nothing(), "e2e-empty")
+    user = model.requests[0][1].content
+    assert "returned no results, so no data files can be selected" in user
+    assert "Try other terms" not in user and "select the ones you need" not in user
+    d = report.summarise(h.ledger, batch, h.tasks, 200, 0)["agent"]["discovery"]
+    assert d["empty_seed"] == 1 and d["seed_complete"] == 0.0
+
+
+def test_seed_reach_follows_collapse_and_the_runs_catalogue(harness: Harness) -> None:
+    h = harness
+    manifest = load_manifest(h.settings.catalogue.manifest_path)
+    model = Scripted(_reply("submit_answer", {"answer": 1, "files_used": [], "program": "p"}))
+    batch = _run_one(h, model, OneCardSearcher(), "e2e-seed")
+    (run,) = h.ledger.runs(batch.batch_id)
+    collapsed = end_to_end.seed_files(h.ledger, run.run_id, manifest, 10, collapse_groups=True)
+    single = end_to_end.seed_files(h.ledger, run.run_id, manifest, 10, collapse_groups=False)
+    assert len(collapsed) == 4 and single == ["legal/input/f1.csv"]
+
+    root = h.settings.kramabench.visible_root
+    same = end_to_end.summary_extra(h.ledger, batch, h.tasks, root, manifest)
+    assert same["manifest_mismatch"] == 0 and same["seed_complete"] is not None
+    rebuilt = manifest.model_copy(
+        update={"entries": [e.model_copy(update={"card_hash": "x"}) for e in manifest.entries]}
+    )
+    other = end_to_end.summary_extra(h.ledger, batch, h.tasks, root, rebuilt)
+    assert other["manifest_mismatch"] == 1 and other["seed_complete"] is None

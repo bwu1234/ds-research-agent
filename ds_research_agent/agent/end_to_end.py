@@ -21,6 +21,7 @@ found and mounted, not in how they are analysed.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -105,24 +106,34 @@ RESTARTED = (
 )
 
 
+NO_RESULTS = (
+    "The catalogue search for this question, in the {domain} collection, returned "
+    "no results, so no data files can be selected."
+)
+
+
 def user_prompt(
     question: str,
     domain: str,
-    results: str,
+    results: str | None,
     answer_type: str | None,
     max_steps: int | None = None,
 ) -> str:
-    """The per-task message: question, the seed search's results, the turn budget."""
+    """The per-task message: question, the seed search's results (None: it
+    found nothing, and nothing can be selected), the turn budget."""
     lines = [f"Question: {question}"]
     if answer_type is not None:
         lines.append(f"Expected answer type: {answer_type}")
-    lines += [
-        "",
-        f"Catalogue search results for this question, from the {domain} collection:",
-        results,
-        "",
-        "No data files are mounted yet: select the ones you need in run_python.",
-    ]
+    lines.append("")
+    if results is None:
+        lines.append(NO_RESULTS.format(domain=domain))
+    else:
+        lines += [
+            f"Catalogue search results for this question, from the {domain} collection:",
+            results,
+            "",
+            "No data files are mounted yet: select the ones you need in run_python.",
+        ]
     if max_steps is not None:
         lines += [
             "",
@@ -176,7 +187,6 @@ class CatalogueAccess:
         self.on_select = on_select
         self._order = {e.catalogue_id: i for i, e in enumerate(tools.manifest.entries)}
         self._selected: dict[str, CatalogueEntry] = {}
-        self.selections = 0
 
     @property
     def files(self) -> list[str]:
@@ -190,7 +200,6 @@ class CatalogueAccess:
         return self.tools.read_card(str(args["id"]), members)
 
     async def select(self, args: Mapping[str, Any]) -> Selected:
-        self.selections += 1
         items = _items(args)
         resolved = self.tools.discovered.resolve(items)
         record: dict[str, Any] = {
@@ -203,8 +212,8 @@ class CatalogueAccess:
             return Selected(problems=resolved.problems)
         new = [e for e in resolved.files if e.catalogue_id not in self._selected]
         for e in new:
-            host = self.root / e.file_path
-            digest = sha256_file(host)
+            # Off the event loop, which also serves the MCP client.
+            digest = await asyncio.to_thread(sha256_file, self.root / e.file_path)
             if digest != e.file_hash:
                 raise CatalogueMismatch(f"{e.file_path}: {digest} != manifest {e.file_hash}")
             record["added"].append(

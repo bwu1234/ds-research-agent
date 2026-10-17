@@ -2100,7 +2100,11 @@ causal retrieval cost. Keep the holdout sealed until D5.
     recall, complete set, and precision against resolved `data_sources`,
     whether the seed results contained the gold set (`seed_complete`, the
     ceiling the analysis can reach), selections, refusals, and kernel
-    sessions per run.
+    sessions per run. `seed_complete` follows the batch's collapse setting
+    and is left out for runs recorded on a different catalogue
+    (`manifest_mismatch`); runs whose seed search found nothing are counted
+    (`empty_seed`), and their prompt says nothing can be selected. Repeated
+    refused selections get the re-plan notice, like repeated cell errors.
   - **Checks.** Offline: `tests/test_end_to_end.py` (selection, mounts,
     restart notice, refused and unselected files, hash mismatch, seed limit,
     scoring, replay with 0 differences). Docker: `tests/sandbox/test_selection_mounts.py`

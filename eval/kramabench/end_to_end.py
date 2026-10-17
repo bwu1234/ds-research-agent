@@ -12,8 +12,13 @@ Ledger steps: ``search`` (the seed search), ``model`` (every request), and
 items, problems, and the newly mounted files with their hashes), numbered in
 call order. Each kernel session and rerun records its own mounts
 (``inputs``). A replay needs neither the model, the rag-toolkit server, nor
-Docker: the recorded search, responses, cells, and reruns are returned, and
-selections are resolved again from the manifest.
+Docker: the recorded search, responses, cells, and reruns are returned.
+Selections are resolved again from the manifest and their files hashed
+again, so like a ``given_files`` replay (which hashes its inputs) it needs
+the data store and catalogue the batch ran on.
+
+A seed search that finds nothing leaves nothing to select; the prompt says
+so, and the report counts such runs (``empty_seed``).
 
 Scoring is ``given_files``': answer score, strict accuracy, and verified
 success (strict, reproduced, and observed access verified). The selection is
@@ -155,7 +160,13 @@ async def run_end_to_end_task(
         workspace,
         recorder,
         system=SYSTEM_PROMPT,
-        user=user_prompt(task.query, task.domain, results, visible_at, s.agent.max_steps),
+        user=user_prompt(
+            task.query,
+            task.domain,
+            results if tools.discovered.ids else None,
+            visible_at,
+            s.agent.max_steps,
+        ),
         files=[],
         settings=s.agent,
         cell_timeout_s=s.sandbox.cell_timeout_s,
@@ -197,15 +208,20 @@ def selected_files(ledger: Ledger, run_id: str) -> list[str]:
     return out
 
 
-def seed_files(ledger: Ledger, run_id: str, manifest: Manifest, k: int) -> list[str]:
+def seed_files(
+    ledger: Ledger, run_id: str, manifest: Manifest, k: int, collapse_groups: bool
+) -> list[str]:
     """Files the seed search made selectable: the members of its first k
-    distinct results after collapse, scored as the single-shot baseline's @k."""
+    distinct results (collapsed if the batch collapsed them), scored as the
+    single-shot baseline's @k."""
     search = next((st for st in ledger.steps(run_id) if st.kind == "search"), None)
     if search is None or search.response is None:
         return []
-    raw = list(dict.fromkeys(r["document_id"] for r in search.response["results"]))
+    ranked = list(dict.fromkeys(r["document_id"] for r in search.response["results"]))
+    if collapse_groups:
+        ranked = collapse(ranked, collapse_map(manifest))
     members = document_files(manifest)
-    return [f for d in collapse(raw, collapse_map(manifest))[:k] for f in members[d]]
+    return [f for d in ranked[:k] for f in members[d]]
 
 
 def summary_extra(
@@ -217,10 +233,17 @@ def summary_extra(
 ) -> dict[str, Any]:
     """Discovery inside end-to-end runs: seed search time, the selection's
     recall and complete set against resolved ``data_sources`` (and, with the
-    manifest, whether the seed results made the gold set reachable at all),
-    selections, and kernel restarts for new mounts."""
+    run's own catalogue, whether the seed results made the gold set
+    reachable at all), selections, and kernel restarts for new mounts.
+
+    ``seed_complete`` is left out for a run whose recorded ``cards_sha256``
+    differs from ``manifest`` (counted as ``manifest_mismatch``): a rebuilt
+    catalogue would map the recorded results to other files."""
     k = int((batch.config.get("end_to_end") or {}).get("seed_cards", 0))
+    collapse_groups = bool((batch.config.get("discovery") or {}).get("collapse_groups", True))
+    cards = cards_sha256(manifest) if manifest is not None else None
     rows: list[dict[str, Any]] = []
+    mismatched = 0
     for r in ledger.runs(batch.batch_id):
         gold, unresolved = gold_files(tasks[r.task_key], root)
         steps = ledger.steps(r.run_id)
@@ -229,17 +252,21 @@ def summary_extra(
         sessions = [p for p in ledger.programs(r.run_id) if p.kind == "session_end"]
         row: dict[str, Any] = {
             "search_s": search.wall_s if search else None,
+            "empty_seed": bool(search and search.response and not search.response["results"]),
             "selections": len(sel),
             "refused_selections": sum(bool(st.response and st.response["problems"]) for st in sel),
             "kernel_sessions": len(sessions),
         }
+        same_catalogue = manifest is not None and r.input_manifest.get("cards_sha256") == cards
+        if manifest is not None and not same_catalogue:
+            mismatched += 1
         if gold:
             m = selection_metrics(selected_files(ledger, r.run_id), gold)
             if unresolved:
                 del m["precision"], m["excess"]
             row |= m
-            if manifest is not None:
-                reach = set(seed_files(ledger, r.run_id, manifest, k))
+            if manifest is not None and same_catalogue:
+                reach = set(seed_files(ledger, r.run_id, manifest, k, collapse_groups))
                 row["seed_complete"] = float(set(gold) <= reach)
         rows.append(row)
 
@@ -254,6 +281,8 @@ def summary_extra(
         "selection_complete": mean("complete"),
         "selection_precision": mean("precision"),
         "seed_complete": mean("seed_complete"),
+        "manifest_mismatch": mismatched,
+        "empty_seed": sum(r["empty_seed"] for r in rows),
         "selections_per_run": mean("selections"),
         "refused_selections": sum(r["refused_selections"] for r in rows),
         # A run's first session starts with its first cell; each later one
