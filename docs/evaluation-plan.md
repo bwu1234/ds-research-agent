@@ -221,6 +221,56 @@ now use the interval, and the second pass was added. Answer score,
 verified success, reproduction, access verification, selection recall and
 complete set, and `seed_complete` are reported beside the primary result.
 
+**D5 development comparisons (DRAFT, 2026-10-17; not registered).** This
+text becomes binding when an entry in D5 progress records it as registered,
+before the first candidate run; until then it may change. The baseline
+passes below compare nothing and may run first.
+
+- **Baseline (`B0`).** `end_to_end` with the `files_used` fix of D4 (d),
+  settings as in D4 (catalogue v3m3, seed 10 cards, 20 steps, 1,800 s,
+  thinking `off`), two development passes. Every D5 development batch runs
+  at one commit and one Ollama version; a change to either restarts the set.
+- **Shared rule.** Candidate minus `B0` strict accuracy, paired on the 41
+  untuned development tasks, two passes a side averaged per task, intervals
+  as in D4 (parent tasks resampled within domain, `eval.bootstrap_*`).
+  Reported beside it, not deciding: answer score, verified success, budget
+  stops, median and p90 task wall, model requests and prompt tokens per run,
+  selection states (D4 (c)); the same difference on the 15 untuned tasks
+  never read next to their gold (D4 (d)), descriptive only (too few tasks
+  to decide); the 12-task sample apart. Each comparison is its own decision
+  against `B0`; no correction for making two. An inconclusive result keeps
+  `B0`'s setting. Each rule is applied by `compare --rule` (`d5a`, `d5b`),
+  its constants fixed in code with a test before registration, as D4's are.
+- **A, self-correction and stopping (`end_to_end`, tighter budget).**
+  `agent.max_steps` 12, `agent.submit_checks` 1, `agent.budget_warning_steps`
+  3; everything else as `B0`. **Adopted** if the strict difference's lower
+  bound is above −10 points and the median task wall is at most 0.85× `B0`'s;
+  **rejected** if the upper bound is below −10 or the median wall is above
+  0.85×; otherwise inconclusive. Motivation, disclosed: in D4 (d), 10 of 15
+  end-to-end budget stops were seed misses the run cannot recover from, and
+  end to end took 2.04× given files' median time; those labels were read
+  next to the gold, so the tasks involved count as tuned for A.
+- **B, agentic discovery (`end_to_end` with search in the loop).** The
+  single-shot seed stays, and the analysis loop also gets `search_catalogue`
+  (the `discovery_agent` tool: domain-filtered, collapsed,
+  `discovery.search_passages`); its results join the discovered set, so their
+  IDs become selectable. Search and `read_card` turns count against the 20
+  steps; each search is timed and recorded so replay needs no server. A new
+  prompt prefix, pinned by a test like the others. **Adopted** if the strict
+  difference's lower bound is above 0 and the median task wall is at most
+  1.25× `B0`'s; **rejected** if the upper bound is below 0 or the median wall
+  is above 1.25×; otherwise inconclusive (single-shot stays). Motivation,
+  disclosed: in D4 (d), 7 failures were files the seed never returned,
+  where the model said the data was unavailable; those tasks count as tuned
+  for B.
+- **Freeze.** The configuration that goes to the holdout is `B0` plus each
+  adopted change. If both are adopted, two passes of the combination run on
+  development and are reported against `B0` before the freeze, without a
+  new decision. Then the freeze in "Splits and protocol" applies.
+- **Cost.** Local model time only, no hosted calls: `B0` about 7.5 h (two
+  passes of about 3.7 h), A about 5 h, B about 8 h, plus 4 h if both are
+  adopted; B needs its build and offline tests first.
+
 Gold answers, reference solutions, and benchmark sub-task instructions stay
 outside prompts, tools, indexes, and sandbox mounts. Only the given-files
 condition receives oracle `data_sources`. Discovery scoring reads those labels
